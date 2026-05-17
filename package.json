@@ -1,0 +1,16 @@
+{
+  "name": "line-bill-slip-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^10.2.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "googleapis": "^144.0.0",
+    "openai": "^4.77.0"
+  }
+}
