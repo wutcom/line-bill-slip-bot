@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node src/index.js"
-  }
-},
+  },
   "dependencies": {
     "@line/bot-sdk": "^10.2.0",
     "dotenv": "^16.4.7",
