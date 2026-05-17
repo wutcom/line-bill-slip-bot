@@ -48,10 +48,13 @@ async function handleEvent(event) {
       return replySafe(event.replyToken, 'ฟังก์ชันสรุปรายวัน กำลังพัฒนาครับ');
     }
 
-    if (text === 'เดือนนี้') {
-      return replySafe(event.replyToken, 'ฟังก์ชันสรุปรายเดือน กำลังพัฒนาครับ');
-    }
 
+    if (text === 'เดือนนี้') {
+      const userId = event.source.userId || '';
+      const summary = await getMonthlySummary(userId);
+    
+      return replySafe(event.replyToken, summary);
+    }
     if (text === 'วิธีใช้') {
       return replySafe(
         event.replyToken,
@@ -315,6 +318,90 @@ setInterval(() => {
   processedMessages.clear();
   console.log('Processed message cache cleared');
 }, 1000 * 60 * 60);
+
+async function getMonthlySummary(userId) {
+  const sheets = getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${process.env.SHEET_NAME || 'Sheet1'}!A:J`
+  });
+
+  const rows = response.data.values || [];
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+
+  let total = 0;
+  let count = 0;
+  const byShop = {};
+
+  rows.slice(1).forEach((row) => {
+    const createdAt = row[0];       // CreatedAt
+    const rowUserId = row[2];       // UserId
+    const shopName = row[4] || '-'; // ShopOrBankName
+    const amountText = row[5] || '0';
+
+    if (userId && rowUserId !== userId) return;
+
+    const date = new Date(createdAt);
+    if (isNaN(date.getTime())) return;
+
+    if (
+      date.getFullYear() === currentYear &&
+      date.getMonth() === currentMonth
+    ) {
+      const amount = parseAmount(amountText);
+
+      total += amount;
+      count++;
+
+      byShop[shopName] = (byShop[shopName] || 0) + amount;
+    }
+  });
+
+  if (count === 0) {
+    return 'เดือนนี้ยังไม่มีรายการบันทึกครับ';
+  }
+
+  const topShops = Object.entries(byShop)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([shop, amount], index) => {
+      return `${index + 1}. ${shop}: ${formatMoney(amount)} บาท`;
+    })
+    .join('\n');
+
+  return `สรุปรายการเดือนนี้
+
+จำนวนรายการ: ${count}
+ยอดรวม: ${formatMoney(total)} บาท
+
+Top ร้านค้า/ธนาคาร:
+${topShops}`;
+}
+
+function parseAmount(value) {
+  if (!value) return 0;
+
+  const cleaned = String(value)
+    .replace(/,/g, '')
+    .replace(/บาท/g, '')
+    .replace(/THB/g, '')
+    .replace(/[^\d.-]/g, '');
+
+  return Number(cleaned) || 0;
+}
+
+function formatMoney(value) {
+  return Number(value || 0).toLocaleString('th-TH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+
 
 const port = process.env.PORT || 3000;
 
