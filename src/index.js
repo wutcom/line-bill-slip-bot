@@ -1,8 +1,9 @@
-import 'dotenv/config';
-import express from 'express';
-import line from '@line/bot-sdk';
-import OpenAI from 'openai';
-import { google } from 'googleapis';
+require('dotenv').config();
+
+const express = require('express');
+const line = require('@line/bot-sdk');
+const OpenAI = require('openai');
+const { google } = require('googleapis');
 
 const app = express();
 
