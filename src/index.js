@@ -13,7 +13,9 @@ const lineConfig = {
 };
 
 const lineClient = new line.Client(lineConfig);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI.OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 app.get('/', (req, res) => {
   res.send('LINE Bill Slip Bot is running');
