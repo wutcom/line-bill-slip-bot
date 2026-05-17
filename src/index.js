@@ -65,15 +65,22 @@ async function handleEvent(event) {
     });
   } catch (error) {
     console.error('Process image error:', error);
-   
-    try {
-      await lineClient.replyMessage(event.replyToken, {
-        type: 'text',
-        text: 'ขออภัยครับ ไม่สามารถอ่านรูปนี้ได้ กรุณาลองส่งรูปใหม่อีกครั้ง'
-      });
-    } catch (e) {
-      console.error('Reply error:', e.originalError?.response?.data || e.message);
-    }
+
+
+    
+if (event.replyToken) {
+  try {
+    await lineClient.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'ระบบ OCR ใช้งานไม่ได้ชั่วคราว กรุณาลองใหม่อีกครั้ง'
+    });
+  } catch (e) {
+    console.error(
+      'Reply error:',
+      e.originalError?.response?.data || e.message
+    );
+  }
+}
   
  
   }
