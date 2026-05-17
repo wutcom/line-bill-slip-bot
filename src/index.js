@@ -7,6 +7,8 @@ const { google } = require('googleapis');
 
 const app = express();
 
+const processedMessages = new Set();
+
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
@@ -17,72 +19,139 @@ const lineClient = new line.Client(lineConfig);
 const openai = new OpenAI.OpenAI({
   apiKey: (process.env.OPENAI_API_KEY || '').trim()
 });
+
 app.get('/', (req, res) => {
   res.send('LINE Bill Slip Bot is running');
 });
 
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
   try {
-    await Promise.all(req.body.events.map(handleEvent));
     res.status(200).end();
+
+    await Promise.all(req.body.events.map(handleEvent));
   } catch (error) {
     console.error('Webhook error:', error);
-    res.status(500).end();
   }
 });
 
 async function handleEvent(event) {
   if (event.type !== 'message') return;
 
-  if (event.message.type !== 'image') {
-    return lineClient.replyMessage(event.replyToken, {
-      type: 'text',
-      text: 'กรุณาส่งรูปบิลหรือสลิปโอนเงินครับ'
-    });
+  if (event.message.type === 'text') {
+    const text = event.message.text.trim();
+
+    if (text === 'ส่งบิล') {
+      return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินได้เลยครับ');
+    }
+
+    if (text === 'ดูวันนี้') {
+      return replySafe(event.replyToken, 'ฟังก์ชันสรุปรายวัน กำลังพัฒนาครับ');
+    }
+
+    if (text === 'เดือนนี้') {
+      return replySafe(event.replyToken, 'ฟังก์ชันสรุปรายเดือน กำลังพัฒนาครับ');
+    }
+
+    if (text === 'วิธีใช้') {
+      return replySafe(
+        event.replyToken,
+        `วิธีใช้งาน
+
+1. กดเมนู "ส่งบิล"
+2. ส่งรูปบิลหรือสลิปโอนเงิน
+3. ระบบจะอ่านข้อมูลอัตโนมัติ
+4. บันทึกลง Google Sheet`
+      );
+    }
+
+    return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินครับ');
   }
 
+  if (event.message.type !== 'image') {
+    return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินครับ');
+  }
+
+  const userId = event.source.userId || '';
+  const messageId = event.message.id;
+
+  if (processedMessages.has(messageId)) {
+    console.log('Duplicate message skipped:', messageId);
+    return;
+  }
+
+  processedMessages.add(messageId);
+
+  await replySafe(event.replyToken, 'ได้รับรูปแล้วครับ กำลังประมวลผล กรุณารอสักครู่');
+
   try {
-    const imageBuffer = await downloadLineImage(event.message.id);
+    const imageBuffer = await downloadLineImage(messageId);
     const result = await analyzeImage(imageBuffer);
 
+    const isDuplicate = await isDuplicateInGoogleSheet(messageId, result);
+
+    if (isDuplicate) {
+      console.log('Duplicate data skipped:', messageId);
+
+      return pushSafe(
+        userId,
+        `รายการนี้เคยถูกบันทึกแล้วครับ
+
+ร้านค้า/ธนาคาร: ${result.shopOrBankName || '-'}
+ยอดเงิน: ${result.amount || '-'}
+วันที่: ${result.transactionDate || '-'}
+เลขอ้างอิง: ${result.referenceNo || '-'}`
+      );
+    }
+
     await appendToGoogleSheet({
-      userId: event.source.userId || '',
+      messageId,
+      userId,
       ...result
     });
 
-    const replyText =
-`บันทึกข้อมูลเรียบร้อยครับ
+    await pushSafe(
+      userId,
+      `บันทึกข้อมูลเรียบร้อยครับ
 
 ประเภท: ${result.documentType || '-'}
 ร้านค้า/ธนาคาร: ${result.shopOrBankName || '-'}
 ยอดเงิน: ${result.amount || '-'}
 วันที่: ${result.transactionDate || '-'}
-เลขอ้างอิง: ${result.referenceNo || '-'}`;
-
-    await lineClient.replyMessage(event.replyToken, {
-      type: 'text',
-      text: replyText
-    });
+เลขอ้างอิง: ${result.referenceNo || '-'}`
+    );
   } catch (error) {
     console.error('Process image error:', error);
 
-
-    
-if (event.replyToken) {
-  try {
-    await lineClient.replyMessage(event.replyToken, {
-      type: 'text',
-      text: 'ระบบ OCR ใช้งานไม่ได้ชั่วคราว กรุณาลองใหม่อีกครั้ง'
-    });
-  } catch (e) {
-    console.error(
-      'Reply error:',
-      e.originalError?.response?.data || e.message
+    await pushSafe(
+      userId,
+      'ขออภัยครับ ไม่สามารถอ่านหรือบันทึกรูปนี้ได้ กรุณาลองส่งรูปใหม่อีกครั้ง'
     );
   }
 }
-  
- 
+
+async function replySafe(replyToken, text) {
+  if (!replyToken) return;
+
+  try {
+    await lineClient.replyMessage(replyToken, {
+      type: 'text',
+      text
+    });
+  } catch (e) {
+    console.error('Reply error:', e.originalError?.response?.data || e.message);
+  }
+}
+
+async function pushSafe(userId, text) {
+  if (!userId) return;
+
+  try {
+    await lineClient.pushMessage(userId, {
+      type: 'text',
+      text
+    });
+  } catch (e) {
+    console.error('Push error:', e.originalError?.response?.data || e.message);
   }
 }
 
@@ -106,7 +175,8 @@ async function analyzeImage(imageBuffer) {
     messages: [
       {
         role: 'system',
-        content: 'You extract information from Thai bills and bank transfer slips. Return valid JSON only.'
+        content:
+          'You extract information from Thai bills and bank transfer slips. Return valid JSON only.'
       },
       {
         role: 'user',
@@ -142,36 +212,109 @@ Return JSON:
   return JSON.parse(response.choices[0].message.content);
 }
 
-async function appendToGoogleSheet(data) {
-  const auth = new google.auth.JWT({
+function getGoogleAuth() {
+  const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+
+  return new google.auth.JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    key: privateKey,
     scopes: ['https://www.googleapis.com/auth/spreadsheets']
   });
+}
 
-  const sheets = google.sheets({ version: 'v4', auth });
+function getSheetsClient() {
+  const auth = getGoogleAuth();
 
-  const values = [[
-    new Date().toISOString(),
-    data.userId,
-    data.documentType,
-    data.shopOrBankName,
-    data.amount,
-    data.transactionDate,
-    data.referenceNo,
-    data.description,
-    data.rawText
-  ]];
+  return google.sheets({
+    version: 'v4',
+    auth
+  });
+}
+
+async function isDuplicateInGoogleSheet(messageId, data) {
+  const sheets = getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${process.env.SHEET_NAME || 'Sheet1'}!A:K`
+  });
+
+  const rows = response.data.values || [];
+
+  const referenceNo = normalizeText(data.referenceNo);
+  const amount = normalizeText(data.amount);
+  const transactionDate = normalizeText(data.transactionDate);
+
+  return rows.some((row) => {
+    const existingMessageId = normalizeText(row[1]);
+    const existingAmount = normalizeText(row[5]);
+    const existingDate = normalizeText(row[6]);
+    const existingReferenceNo = normalizeText(row[7]);
+
+    if (messageId && existingMessageId === normalizeText(messageId)) {
+      return true;
+    }
+
+    if (
+      referenceNo &&
+      existingReferenceNo &&
+      existingReferenceNo === referenceNo
+    ) {
+      return true;
+    }
+
+    if (
+      amount &&
+      transactionDate &&
+      existingAmount === amount &&
+      existingDate === transactionDate
+    ) {
+      return true;
+    }
+
+    return false;
+  });
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+async function appendToGoogleSheet(data) {
+  const sheets = getSheetsClient();
+
+  const values = [
+    [
+      new Date().toISOString(),
+      data.messageId || '',
+      data.userId || '',
+      data.documentType || '',
+      data.shopOrBankName || '',
+      data.amount || '',
+      data.transactionDate || '',
+      data.referenceNo || '',
+      data.description || '',
+      data.rawText || ''
+    ]
+  ];
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${process.env.SHEET_NAME}!A:I`,
+    range: `${process.env.SHEET_NAME || 'Sheet1'}!A:J`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values
     }
   });
 }
+
+setInterval(() => {
+  processedMessages.clear();
+  console.log('Processed message cache cleared');
+}, 1000 * 60 * 60);
 
 const port = process.env.PORT || 3000;
 
