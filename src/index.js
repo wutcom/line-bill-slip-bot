@@ -422,15 +422,15 @@ async function getTodaySummary(userId) {
   const byShop = {};
 
   rows.slice(1).forEach((row) => {
-    const createdAt = row[0];
+ const transactionDate = row[6] || '';
     const rowUserId = row[2];
     const shopName = row[4] || '-';
     const amountText = row[5] || '0';
 
     if (userId && rowUserId !== userId) return;
 
-    if (!createdAt || !createdAt.startsWith(todayKey)) return;
-
+    
+    if (!isToday(transactionDate)) return;
     const amount = parseAmount(amountText);
 
     total += amount;
@@ -438,7 +438,7 @@ async function getTodaySummary(userId) {
 
     byShop[shopName] = (byShop[shopName] || 0) + amount;
   });
-
+ 
   if (count === 0) {
     return 'วันนี้ยังไม่มีรายการบันทึกครับ';
   }
@@ -458,6 +458,56 @@ async function getTodaySummary(userId) {
 
 Top ร้านค้า/ธนาคาร:
 ${topShops}`;
+}
+function isToday(dateText) {
+  if (!dateText) return false;
+
+  const today = new Date();
+
+  const day = today.getDate();
+  const month = today.getMonth() + 1;
+  const yearBE = today.getFullYear() + 543;
+
+  const patterns = [
+    `${day} `,
+    `${padZero(day)} `,
+  ];
+
+  const monthPatterns = [
+    `${month}`,
+    padZero(month),
+    getThaiMonthShort(month)
+  ];
+
+  const hasDay = patterns.some(p => dateText.includes(p));
+  const hasMonth = monthPatterns.some(m => dateText.includes(m));
+  const hasYear = dateText.includes(yearBE.toString());
+
+  return hasDay && hasMonth && hasYear;
+}
+
+function padZero(value) {
+  return String(value).padStart(2, '0');
+}
+
+function getThaiMonthShort(month) {
+  const months = [
+    '',
+    'ม.ค.',
+    'ก.พ.',
+    'มี.ค.',
+    'เม.ย.',
+    'พ.ค.',
+    'มิ.ย.',
+    'ก.ค.',
+    'ส.ค.',
+    'ก.ย.',
+    'ต.ค.',
+    'พ.ย.',
+    'ธ.ค.'
+  ];
+
+  return months[month];
 }
 
 const port = process.env.PORT || 3000;
