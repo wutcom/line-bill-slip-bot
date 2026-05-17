@@ -13,10 +13,10 @@ const lineConfig = {
 };
 
 const lineClient = new line.Client(lineConfig);
-const openai = new OpenAI.OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
 
+const openai = new OpenAI.OpenAI({
+  apiKey: (process.env.OPENAI_API_KEY || '').trim()
+});
 app.get('/', (req, res) => {
   res.send('LINE Bill Slip Bot is running');
 });
@@ -65,15 +65,16 @@ async function handleEvent(event) {
     });
   } catch (error) {
     console.error('Process image error:', error);
-    
-  try {
-    await lineClient.replyMessage(event.replyToken, {
-      type: 'text',
-      text: 'ขออภัยครับ ไม่สามารถอ่านรูปนี้ได้ กรุณาลองส่งรูปใหม่อีกครั้ง'
-    });
-  } catch (e) {
-    console.error('Reply error:', e.message);
-  }
+   
+    try {
+      await lineClient.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'ขออภัยครับ ไม่สามารถอ่านรูปนี้ได้ กรุณาลองส่งรูปใหม่อีกครั้ง'
+      });
+    } catch (e) {
+      console.error('Reply error:', e.originalError?.response?.data || e.message);
+    }
+  
  
   }
 }
