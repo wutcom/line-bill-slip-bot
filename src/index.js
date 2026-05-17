@@ -44,10 +44,13 @@ async function handleEvent(event) {
       return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินได้เลยครับ');
     }
 
+ 
     if (text === 'ดูวันนี้') {
-      return replySafe(event.replyToken, 'ฟังก์ชันสรุปรายวัน กำลังพัฒนาครับ');
+      const userId = event.source.userId || '';
+      const summary = await getTodaySummary(userId);
+    
+      return replySafe(event.replyToken, summary);
     }
-
 
     if (text === 'เดือนนี้') {
       const userId = event.source.userId || '';
@@ -401,7 +404,61 @@ function formatMoney(value) {
   });
 }
 
+async function getTodaySummary(userId) {
+  const sheets = getSheetsClient();
 
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${process.env.SHEET_NAME || 'Sheet1'}!A:J`
+  });
+
+  const rows = response.data.values || [];
+
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+
+  let total = 0;
+  let count = 0;
+  const byShop = {};
+
+  rows.slice(1).forEach((row) => {
+    const createdAt = row[0];
+    const rowUserId = row[2];
+    const shopName = row[4] || '-';
+    const amountText = row[5] || '0';
+
+    if (userId && rowUserId !== userId) return;
+
+    if (!createdAt || !createdAt.startsWith(todayKey)) return;
+
+    const amount = parseAmount(amountText);
+
+    total += amount;
+    count++;
+
+    byShop[shopName] = (byShop[shopName] || 0) + amount;
+  });
+
+  if (count === 0) {
+    return 'วันนี้ยังไม่มีรายการบันทึกครับ';
+  }
+
+  const topShops = Object.entries(byShop)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([shop, amount], index) => {
+      return `${index + 1}. ${shop}: ${formatMoney(amount)} บาท`;
+    })
+    .join('\n');
+
+  return `สรุปรายการวันนี้
+
+จำนวนรายการ: ${count}
+ยอดรวม: ${formatMoney(total)} บาท
+
+Top ร้านค้า/ธนาคาร:
+${topShops}`;
+}
 
 const port = process.env.PORT || 3000;
 
