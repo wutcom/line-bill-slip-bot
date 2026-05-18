@@ -38,7 +38,27 @@ async function handleEvent(event) {
 
   if (event.message.type === 'text') {
     const text = event.message.text.trim();
-
+    const userId = event.source.userId || '';
+    
+    if (text === 'แผนเดือนนี้') {
+      const message = await getCurrentMonthPlans(userId);
+      return replySafe(event.replyToken, message);
+    }
+    
+    if (text.startsWith('เพิ่มแผน ')) {
+      const message = await addBudgetPlan(userId, text);
+      return replySafe(event.replyToken, message);
+    }
+    
+    if (text === 'ดูคงเหลือ') {
+      const message = await getRemainingPlans(userId);
+      return replySafe(event.replyToken, message);
+    }
+    
+    if (text === 'copy แผนเดือนก่อน') {
+      const message = await copyPreviousMonthPlans(userId);
+      return replySafe(event.replyToken, message);
+    }
     if (text === 'ส่งบิล') {
       return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินได้เลยครับ');
     }
@@ -578,7 +598,211 @@ setInterval(() => {
   processedMessages.clear();
   console.log('Processed message cache cleared');
 }, 1000 * 60 * 60);
+const BUDGET_SHEET_NAME = 'BudgetPlan';
 
+function getCurrentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getPreviousMonthKey() {
+  const now = new Date();
+  now.setMonth(now.getMonth() - 1);
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+async function getBudgetRows() {
+  const sheets = getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${BUDGET_SHEET_NAME}!A:I`
+  });
+
+  return response.data.values || [];
+}
+
+async function addBudgetPlan(userId, text) {
+  const parts = text.trim().split(/\s+/);
+
+  if (parts.length < 3) {
+    return 'รูปแบบไม่ถูกต้องครับ\nตัวอย่าง: เพิ่มแผน UOB 24677';
+  }
+
+  const planName = parts[1];
+  const planAmount = parseAmount(parts[2]);
+
+  if (!planName || planAmount <= 0) {
+    return 'กรุณาระบุชื่อแผนและยอดเงินให้ถูกต้องครับ\nตัวอย่าง: เพิ่มแผน UOB 24677';
+  }
+
+  const month = getCurrentMonthKey();
+  const now = new Date().toISOString();
+
+  const sheets = getSheetsClient();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${BUDGET_SHEET_NAME}!A:I`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[
+        month,
+        userId,
+        planName,
+        planAmount,
+        0,
+        planAmount,
+        'Active',
+        now,
+        now
+      ]]
+    }
+  });
+
+  return `เพิ่มแผนเรียบร้อยครับ
+
+เดือน: ${month}
+แผน: ${planName}
+ยอดแผน: ${formatMoney(planAmount)} บาท`;
+}
+
+async function getCurrentMonthPlans(userId) {
+  const rows = await getBudgetRows();
+  const month = getCurrentMonthKey();
+
+  const plans = rows.slice(1).filter(row =>
+    row[0] === month &&
+    row[1] === userId &&
+    row[6] !== 'Inactive'
+  );
+
+  if (plans.length === 0) {
+    return 'เดือนนี้ยังไม่มีแผนครับ\nตัวอย่าง: เพิ่มแผน UOB 24677';
+  }
+
+  let totalPlan = 0;
+  let totalPaid = 0;
+  let totalRemaining = 0;
+
+  const planText = plans.map((row, index) => {
+    const planName = row[2] || '-';
+    const planAmount = parseAmount(row[3]);
+    const paidAmount = parseAmount(row[4]);
+    const remaining = parseAmount(row[5]);
+
+    totalPlan += planAmount;
+    totalPaid += paidAmount;
+    totalRemaining += remaining;
+
+    return `${index + 1}. ${planName}
+แผน: ${formatMoney(planAmount)} บาท
+จ่ายแล้ว: ${formatMoney(paidAmount)} บาท
+คงเหลือ: ${formatMoney(remaining)} บาท`;
+  }).join('\n\n');
+
+  return `แผนเดือนนี้ ${month}
+
+${planText}
+
+รวมแผน: ${formatMoney(totalPlan)} บาท
+รวมจ่ายแล้ว: ${formatMoney(totalPaid)} บาท
+คงเหลือรวม: ${formatMoney(totalRemaining)} บาท`;
+}
+
+async function getRemainingPlans(userId) {
+  const rows = await getBudgetRows();
+  const month = getCurrentMonthKey();
+
+  const plans = rows.slice(1).filter(row =>
+    row[0] === month &&
+    row[1] === userId &&
+    row[6] !== 'Inactive'
+  );
+
+  if (plans.length === 0) {
+    return 'ยังไม่มีแผนสำหรับเดือนนี้ครับ';
+  }
+
+  let totalRemaining = 0;
+
+  const text = plans.map((row, index) => {
+    const planName = row[2] || '-';
+    const remaining = parseAmount(row[5]);
+    totalRemaining += remaining;
+
+    return `${index + 1}. ${planName}: ${formatMoney(remaining)} บาท`;
+  }).join('\n');
+
+  return `คงเหลือเดือนนี้
+
+${text}
+
+คงเหลือรวม: ${formatMoney(totalRemaining)} บาท`;
+}
+
+async function copyPreviousMonthPlans(userId) {
+  const rows = await getBudgetRows();
+
+  const currentMonth = getCurrentMonthKey();
+  const previousMonth = getPreviousMonthKey();
+
+  const currentPlans = rows.slice(1).filter(row =>
+    row[0] === currentMonth &&
+    row[1] === userId &&
+    row[6] !== 'Inactive'
+  );
+
+  if (currentPlans.length > 0) {
+    return `เดือนนี้มีแผนอยู่แล้วครับ (${currentPlans.length} รายการ)\nถ้าต้องการ copy ใหม่ กรุณาลบหรือจัดการแผนเดิมก่อน`;
+  }
+
+  const previousPlans = rows.slice(1).filter(row =>
+    row[0] === previousMonth &&
+    row[1] === userId &&
+    row[6] !== 'Inactive'
+  );
+
+  if (previousPlans.length === 0) {
+    return `ไม่พบแผนของเดือนก่อน (${previousMonth}) ครับ`;
+  }
+
+  const now = new Date().toISOString();
+
+  const values = previousPlans.map(row => {
+    const planName = row[2] || '';
+    const planAmount = parseAmount(row[3]);
+
+    return [
+      currentMonth,
+      userId,
+      planName,
+      planAmount,
+      0,
+      planAmount,
+      'Active',
+      now,
+      now
+    ];
+  });
+
+  const sheets = getSheetsClient();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${BUDGET_SHEET_NAME}!A:I`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values
+    }
+  });
+
+  return `copy แผนเดือนก่อนเรียบร้อยครับ
+
+จากเดือน: ${previousMonth}
+มาเป็นเดือน: ${currentMonth}
+จำนวน: ${values.length} รายการ`;
+}
 const port = process.env.PORT || 3000;
 
 app.listen(port, () => {
