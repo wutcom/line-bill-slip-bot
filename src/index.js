@@ -59,6 +59,12 @@ async function handleEvent(event) {
       const message = await copyPreviousMonthPlans(userId);
       return replySafe(event.replyToken, message);
     }
+    
+    if (text.startsWith('จ่ายแล้ว ')) {
+      const message = await markPlanPaid(userId, text);
+      return replySafe(event.replyToken, message);
+    }
+    
     if (text === 'ส่งบิล') {
       return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินได้เลยครับ');
     }
@@ -802,6 +808,97 @@ async function copyPreviousMonthPlans(userId) {
 จากเดือน: ${previousMonth}
 มาเป็นเดือน: ${currentMonth}
 จำนวน: ${values.length} รายการ`;
+}
+
+async function markPlanPaid(userId, text) {
+  const parts = text.trim().split(/\s+/);
+
+  if (parts.length < 2) {
+    return 'รูปแบบไม่ถูกต้องครับ\nตัวอย่าง: จ่ายแล้ว UOB 5000';
+  }
+
+  const planName = parts[1];
+  const inputAmount = parts.length >= 3 ? parseAmount(parts[2]) : null;
+
+  const month = getCurrentMonthKey();
+  const rows = await getBudgetRows();
+
+  const rowIndex = rows.findIndex((row, index) =>
+    index > 0 &&
+    row[0] === month &&
+    row[1] === userId &&
+    normalizeText(row[2]) === normalizeText(planName) &&
+    row[6] !== 'Inactive'
+  );
+
+  if (rowIndex < 0) {
+    return `ไม่พบแผน ${planName} ของเดือนนี้ครับ`;
+  }
+
+  const row = rows[rowIndex];
+  const planAmount = parseAmount(row[3]);
+
+  let paidAmount = inputAmount;
+
+  if (!paidAmount || paidAmount <= 0) {
+    paidAmount = await calculatePaidFromTransactions(userId, planName);
+  }
+
+  const remaining = Math.max(planAmount - paidAmount, 0);
+  const now = new Date().toISOString();
+
+  const sheets = getSheetsClient();
+
+  const sheetRowNumber = rowIndex + 1;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${BUDGET_SHEET_NAME}!E${sheetRowNumber}:I${sheetRowNumber}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[
+        paidAmount,
+        remaining,
+        'Active',
+        row[7] || now,
+        now
+      ]]
+    }
+  });
+
+  return `อัปเดตจ่ายแล้วเรียบร้อยครับ
+
+แผน: ${planName}
+ยอดแผน: ${formatMoney(planAmount)} บาท
+จ่ายแล้ว: ${formatMoney(paidAmount)} บาท
+คงเหลือ: ${formatMoney(remaining)} บาท`;
+}
+
+async function calculatePaidFromTransactions(userId, planName) {
+  const rows = await getSheetRows();
+
+  let total = 0;
+
+  rows.slice(1).forEach((row) => {
+    const rowUserId = row[2];
+    const shopName = row[4] || '';
+    const amountText = row[5] || '0';
+    const transactionDate = row[6] || '';
+    const description = row[9] || '';
+    const rawText = row[10] || '';
+
+    if (userId && rowUserId !== userId) return;
+    if (!isCurrentMonth(transactionDate)) return;
+
+    const keyword = normalizeText(planName);
+    const combinedText = normalizeText(`${shopName} ${description} ${rawText}`);
+
+    if (!combinedText.includes(keyword)) return;
+
+    total += parseAmount(amountText);
+  });
+
+  return total;
 }
 const port = process.env.PORT || 3000;
 
