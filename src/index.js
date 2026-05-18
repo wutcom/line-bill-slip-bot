@@ -27,7 +27,6 @@ app.get('/', (req, res) => {
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
   try {
     res.status(200).end();
-
     await Promise.all(req.body.events.map(handleEvent));
   } catch (error) {
     console.error('Webhook error:', error);
@@ -44,20 +43,18 @@ async function handleEvent(event) {
       return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินได้เลยครับ');
     }
 
- 
     if (text === 'ดูวันนี้') {
       const userId = event.source.userId || '';
       const summary = await getTodaySummary(userId);
-    
       return replySafe(event.replyToken, summary);
     }
 
     if (text === 'เดือนนี้') {
       const userId = event.source.userId || '';
       const summary = await getMonthlySummary(userId);
-    
       return replySafe(event.replyToken, summary);
     }
+
     if (text === 'วิธีใช้') {
       return replySafe(
         event.replyToken,
@@ -66,7 +63,8 @@ async function handleEvent(event) {
 1. กดเมนู "ส่งบิล"
 2. ส่งรูปบิลหรือสลิปโอนเงิน
 3. ระบบจะอ่านข้อมูลอัตโนมัติ
-4. บันทึกลง Google Sheet`
+4. บันทึกลง Google Sheet
+5. กด "ดูวันนี้" หรือ "เดือนนี้" เพื่อดูสรุป`
       );
     }
 
@@ -102,6 +100,7 @@ async function handleEvent(event) {
         userId,
         `รายการนี้เคยถูกบันทึกแล้วครับ
 
+หมวดหมู่: ${result.category || '-'}
 ร้านค้า/ธนาคาร: ${result.shopOrBankName || '-'}
 ยอดเงิน: ${result.amount || '-'}
 วันที่: ${result.transactionDate || '-'}
@@ -120,6 +119,7 @@ async function handleEvent(event) {
       `บันทึกข้อมูลเรียบร้อยครับ
 
 ประเภท: ${result.documentType || '-'}
+หมวดหมู่: ${result.category || '-'}
 ร้านค้า/ธนาคาร: ${result.shopOrBankName || '-'}
 ยอดเงิน: ${result.amount || '-'}
 วันที่: ${result.transactionDate || '-'}
@@ -199,9 +199,23 @@ Return JSON:
   "amount": "",
   "transactionDate": "",
   "referenceNo": "",
+  "category": "",
   "description": "",
   "rawText": ""
 }
+
+Category must be one of:
+Food, Transport, Fuel, Shopping, Transfer, Utility, Health, Other
+
+Rules:
+- If it is food, restaurant, market, fruit, coffee, drink, cafe, bakery => Food
+- If it is gas station, petrol, diesel, fuel, Shell, PT, PTT, Bangchak, Esso, Caltex => Fuel
+- If it is taxi, train, bus, toll, parking, BTS, MRT, Grab, Bolt => Transport
+- If it is electricity, water, internet, phone bill, mobile bill => Utility
+- If it is hospital, pharmacy, medicine, clinic => Health
+- If it is bank transfer without clear purpose => Transfer
+- If it is supermarket, mall, online shopping, clothes, electronics => Shopping
+- If unsure => Other
 `
           },
           {
@@ -282,13 +296,6 @@ async function isDuplicateInGoogleSheet(messageId, data) {
   });
 }
 
-function normalizeText(value) {
-  return String(value || '')
-    .trim()
-    .replace(/\s+/g, '')
-    .toLowerCase();
-}
-
 async function appendToGoogleSheet(data) {
   const sheets = getSheetsClient();
 
@@ -302,6 +309,7 @@ async function appendToGoogleSheet(data) {
       data.amount || '',
       data.transactionDate || '',
       data.referenceNo || '',
+      data.category || '',
       data.description || '',
       data.rawText || ''
     ]
@@ -309,7 +317,7 @@ async function appendToGoogleSheet(data) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${process.env.SHEET_NAME || 'Sheet1'}!A:J`,
+    range: `${process.env.SHEET_NAME || 'Sheet1'}!A:K`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values
@@ -317,58 +325,92 @@ async function appendToGoogleSheet(data) {
   });
 }
 
-setInterval(() => {
-  processedMessages.clear();
-  console.log('Processed message cache cleared');
-}, 1000 * 60 * 60);
-
-async function getMonthlySummary(userId) {
-  const sheets = getSheetsClient();
-
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${process.env.SHEET_NAME || 'Sheet1'}!A:J`
-  });
-
-  const rows = response.data.values || [];
-
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
+async function getTodaySummary(userId) {
+  const rows = await getSheetRows();
 
   let total = 0;
   let count = 0;
+  const byCategory = {};
   const byShop = {};
 
   rows.slice(1).forEach((row) => {
-    const createdAt = row[0];       // CreatedAt
-    const rowUserId = row[2];       // UserId
-    const shopName = row[4] || '-'; // ShopOrBankName
+    const rowUserId = row[2];
+    const shopName = row[4] || '-';
     const amountText = row[5] || '0';
+    const transactionDate = row[6] || '';
+    const category = row[8] || 'Other';
 
     if (userId && rowUserId !== userId) return;
+    if (!isToday(transactionDate)) return;
 
-    const date = new Date(createdAt);
-    if (isNaN(date.getTime())) return;
+    const amount = parseAmount(amountText);
 
-    if (
-      date.getFullYear() === currentYear &&
-      date.getMonth() === currentMonth
-    ) {
-      const amount = parseAmount(amountText);
+    total += amount;
+    count++;
 
-      total += amount;
-      count++;
+    byCategory[category] = (byCategory[category] || 0) + amount;
+    byShop[shopName] = (byShop[shopName] || 0) + amount;
+  });
 
-      byShop[shopName] = (byShop[shopName] || 0) + amount;
-    }
+  if (count === 0) {
+    return 'วันนี้ยังไม่มีรายการบันทึกครับ';
+  }
+
+  return buildSummaryMessage('สรุปรายการวันนี้', count, total, byCategory, byShop);
+}
+
+async function getMonthlySummary(userId) {
+  const rows = await getSheetRows();
+
+  let total = 0;
+  let count = 0;
+  const byCategory = {};
+  const byShop = {};
+
+  rows.slice(1).forEach((row) => {
+    const rowUserId = row[2];
+    const shopName = row[4] || '-';
+    const amountText = row[5] || '0';
+    const transactionDate = row[6] || '';
+    const category = row[8] || 'Other';
+
+    if (userId && rowUserId !== userId) return;
+    if (!isCurrentMonth(transactionDate)) return;
+
+    const amount = parseAmount(amountText);
+
+    total += amount;
+    count++;
+
+    byCategory[category] = (byCategory[category] || 0) + amount;
+    byShop[shopName] = (byShop[shopName] || 0) + amount;
   });
 
   if (count === 0) {
     return 'เดือนนี้ยังไม่มีรายการบันทึกครับ';
   }
 
-  const topShops = Object.entries(byShop)
+  return buildSummaryMessage('สรุปรายการเดือนนี้', count, total, byCategory, byShop);
+}
+
+async function getSheetRows() {
+  const sheets = getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${process.env.SHEET_NAME || 'Sheet1'}!A:K`
+  });
+
+  return response.data.values || [];
+}
+
+function buildSummaryMessage(title, count, total, byCategory, byShop) {
+  const categoryText = Object.entries(byCategory)
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, amount]) => `- ${category}: ${formatMoney(amount)} บาท`)
+    .join('\n');
+
+  const shopText = Object.entries(byShop)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([shop, amount], index) => {
@@ -376,13 +418,134 @@ async function getMonthlySummary(userId) {
     })
     .join('\n');
 
-  return `สรุปรายการเดือนนี้
+  return `${title}
 
 จำนวนรายการ: ${count}
 ยอดรวม: ${formatMoney(total)} บาท
 
+แยกตามหมวดหมู่:
+${categoryText || '-'}
+
 Top ร้านค้า/ธนาคาร:
-${topShops}`;
+${shopText || '-'}`;
+}
+
+function isToday(dateText) {
+  if (!dateText) return false;
+
+  const parsedDate = parseTransactionDate(dateText);
+  if (!parsedDate) return false;
+
+  const today = new Date();
+
+  return (
+    parsedDate.getFullYear() === today.getFullYear() &&
+    parsedDate.getMonth() === today.getMonth() &&
+    parsedDate.getDate() === today.getDate()
+  );
+}
+
+function isCurrentMonth(dateText) {
+  if (!dateText) return false;
+
+  const parsedDate = parseTransactionDate(dateText);
+  if (!parsedDate) return false;
+
+  const today = new Date();
+
+  return (
+    parsedDate.getFullYear() === today.getFullYear() &&
+    parsedDate.getMonth() === today.getMonth()
+  );
+}
+
+function parseTransactionDate(dateText) {
+  if (!dateText) return null;
+
+  const text = String(dateText).trim();
+
+  let match = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (match) {
+    return buildDate(match[1], match[2], match[3]);
+  }
+
+  match = text.match(/(\d{1,2})\s*([ก-๙.]+)\s*(\d{4})/);
+  if (match) {
+    const month = getThaiMonthNumber(match[2]);
+    if (month) {
+      return buildDate(match[1], month, match[3]);
+    }
+  }
+
+  match = text.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (match) {
+    return buildDate(match[3], match[2], match[1]);
+  }
+
+  return null;
+}
+
+function buildDate(day, month, year) {
+  let y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+
+  if (y > 2400) {
+    y -= 543;
+  }
+
+  const date = new Date(y, m - 1, d);
+
+  if (isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
+function getThaiMonthNumber(monthText) {
+  const key = String(monthText).replace(/\s/g, '');
+
+  const months = {
+    'ม.ค.': 1,
+    'มค': 1,
+    'มกราคม': 1,
+    'ก.พ.': 2,
+    'กพ': 2,
+    'กุมภาพันธ์': 2,
+    'มี.ค.': 3,
+    'มีค': 3,
+    'มีนาคม': 3,
+    'เม.ย.': 4,
+    'เมย': 4,
+    'เมษายน': 4,
+    'พ.ค.': 5,
+    'พค': 5,
+    'พฤษภาคม': 5,
+    'มิ.ย.': 6,
+    'มิย': 6,
+    'มิถุนายน': 6,
+    'ก.ค.': 7,
+    'กค': 7,
+    'กรกฎาคม': 7,
+    'ส.ค.': 8,
+    'สค': 8,
+    'สิงหาคม': 8,
+    'ก.ย.': 9,
+    'กย': 9,
+    'กันยายน': 9,
+    'ต.ค.': 10,
+    'ตค': 10,
+    'ตุลาคม': 10,
+    'พ.ย.': 11,
+    'พย': 11,
+    'พฤศจิกายน': 11,
+    'ธ.ค.': 12,
+    'ธค': 12,
+    'ธันวาคม': 12
+  };
+
+  return months[key] || null;
 }
 
 function parseAmount(value) {
@@ -391,7 +554,7 @@ function parseAmount(value) {
   const cleaned = String(value)
     .replace(/,/g, '')
     .replace(/บาท/g, '')
-    .replace(/THB/g, '')
+    .replace(/THB/gi, '')
     .replace(/[^\d.-]/g, '');
 
   return Number(cleaned) || 0;
@@ -404,111 +567,17 @@ function formatMoney(value) {
   });
 }
 
-async function getTodaySummary(userId) {
-  const sheets = getSheetsClient();
-
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${process.env.SHEET_NAME || 'Sheet1'}!A:J`
-  });
-
-  const rows = response.data.values || [];
-
-  const now = new Date();
-  const todayKey = now.toISOString().slice(0, 10);
-
-  let total = 0;
-  let count = 0;
-  const byShop = {};
-
-  rows.slice(1).forEach((row) => {
- const transactionDate = row[6] || '';
-    const rowUserId = row[2];
-    const shopName = row[4] || '-';
-    const amountText = row[5] || '0';
-
-    if (userId && rowUserId !== userId) return;
-
-    
-    if (!isToday(transactionDate)) return;
-    const amount = parseAmount(amountText);
-
-    total += amount;
-    count++;
-
-    byShop[shopName] = (byShop[shopName] || 0) + amount;
-  });
- 
-  if (count === 0) {
-    return 'วันนี้ยังไม่มีรายการบันทึกครับ';
-  }
-
-  const topShops = Object.entries(byShop)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([shop, amount], index) => {
-      return `${index + 1}. ${shop}: ${formatMoney(amount)} บาท`;
-    })
-    .join('\n');
-
-  return `สรุปรายการวันนี้
-
-จำนวนรายการ: ${count}
-ยอดรวม: ${formatMoney(total)} บาท
-
-Top ร้านค้า/ธนาคาร:
-${topShops}`;
-}
-function isToday(dateText) {
-  if (!dateText) return false;
-
-  const today = new Date();
-
-  const day = today.getDate();
-  const month = today.getMonth() + 1;
-  const yearBE = today.getFullYear() + 543;
-
-  const patterns = [
-    `${day} `,
-    `${padZero(day)} `,
-  ];
-
-  const monthPatterns = [
-    `${month}`,
-    padZero(month),
-    getThaiMonthShort(month)
-  ];
-
-  const hasDay = patterns.some(p => dateText.includes(p));
-  const hasMonth = monthPatterns.some(m => dateText.includes(m));
-  const hasYear = dateText.includes(yearBE.toString());
-
-  return hasDay && hasMonth && hasYear;
+function normalizeText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .toLowerCase();
 }
 
-function padZero(value) {
-  return String(value).padStart(2, '0');
-}
-
-function getThaiMonthShort(month) {
-  const months = [
-    '',
-    'ม.ค.',
-    'ก.พ.',
-    'มี.ค.',
-    'เม.ย.',
-    'พ.ค.',
-    'มิ.ย.',
-    'ก.ค.',
-    'ส.ค.',
-    'ก.ย.',
-    'ต.ค.',
-    'พ.ย.',
-    'ธ.ค.'
-  ];
-
-  return months[month];
-}
+setInterval(() => {
+  processedMessages.clear();
+  console.log('Processed message cache cleared');
+}, 1000 * 60 * 60);
 
 const port = process.env.PORT || 3000;
 
