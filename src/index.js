@@ -12,7 +12,6 @@ const {
 
 const { analyzeImage } = require('./services/openai.service');
 const { getSheetRows, appendRows } = require('./services/sheets.service');
-const { uploadReceiptImage } = require('./services/drive.service');
 const { getTodaySummary, getMonthlySummary } = require('./services/summary.service');
 
 const {
@@ -142,17 +141,9 @@ async function handleEvent(event) {
       );
     }
 
-    const imageMeta = await uploadReceiptImage({
-      imageBuffer,
-      userId,
-      messageId,
-      documentType: result.documentType
-    });
-
     await appendTransactionToGoogleSheet({
       messageId,
       userId,
-      ...(imageMeta || {}),
       ...result
     });
 
