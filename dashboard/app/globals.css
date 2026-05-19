@@ -41,10 +41,70 @@ select {
   font: inherit;
 }
 
+code {
+  border-radius: 6px;
+  background: #eef2f7;
+  color: #111827;
+  padding: 2px 7px;
+  font-family: inherit;
+  font-weight: 800;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   min-height: 100svh;
+}
+
+.help-page {
+  width: min(900px, 100%);
+  margin: 0 auto;
+  padding: 30px 18px 46px;
+}
+
+.help-hero {
+  padding: 26px 0 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.help-hero p:last-child {
+  max-width: 680px;
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.help-section {
+  padding: 26px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.help-item {
+  min-height: 116px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
+}
+
+.help-item p,
+.help-section p {
+  margin-bottom: 0;
+  color: var(--muted);
+}
+
+.command-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
 }
 
 .side-nav {
