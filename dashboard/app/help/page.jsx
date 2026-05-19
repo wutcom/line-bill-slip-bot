@@ -1,3 +1,5 @@
+import AppShell from '../../components/AppShell';
+
 export const metadata = {
   title: 'วิธีใช้ | LINE Bill Slip Bot',
   description: 'วิธีใช้งาน LINE Bill Slip Bot'
@@ -14,7 +16,8 @@ const summaryItems = [
 
 export default function HelpPage() {
   return (
-    <main className="help-page">
+    <AppShell active="help">
+      <div className="help-page">
       <section className="help-hero">
         <p className="eyebrow">LINE Bill Slip Bot</p>
         <h1>วิธีใช้งาน</h1>
@@ -54,6 +57,7 @@ export default function HelpPage() {
           ของคนที่ส่งคำสั่ง
         </p>
       </section>
-    </main>
+      </div>
+    </AppShell>
   );
 }
