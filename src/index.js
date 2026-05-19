@@ -12,6 +12,7 @@ const {
 
 const { analyzeImage } = require('./services/openai.service');
 const { getSheetRows, appendRows } = require('./services/sheets.service');
+const { uploadReceiptImage } = require('./services/drive.service');
 const { getTodaySummary, getMonthlySummary } = require('./services/summary.service');
 
 const {
@@ -141,9 +142,17 @@ async function handleEvent(event) {
       );
     }
 
+    const imageMeta = await uploadReceiptImage({
+      imageBuffer,
+      userId,
+      messageId,
+      documentType: result.documentType
+    });
+
     await appendTransactionToGoogleSheet({
       messageId,
       userId,
+      ...(imageMeta || {}),
       ...result
     });
 
@@ -190,7 +199,7 @@ async function isDuplicateInGoogleSheet(messageId, data) {
 }
 
 async function appendTransactionToGoogleSheet(data) {
-  await appendRows(TRANSACTION_SHEET_NAME, 'A:K', [[
+  await appendRows(TRANSACTION_SHEET_NAME, 'A:O', [[
     new Date().toISOString(),
     data.messageId || '',
     data.userId || '',
@@ -201,7 +210,11 @@ async function appendTransactionToGoogleSheet(data) {
     data.referenceNo || '',
     data.category || '',
     data.description || '',
-    data.rawText || ''
+    data.rawText || '',
+    data.imageFileId || '',
+    data.imageUrl || '',
+    data.imageStoredAt || '',
+    data.ocrConfidence || data.confidence || ''
   ]]);
 }
 
