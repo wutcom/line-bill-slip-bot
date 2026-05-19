@@ -86,10 +86,22 @@ function getThaiMonthNumber(monthText) {
   return months[key] || null;
 }
 
+function normalizeText(value) {
+  if (value === null || value === undefined) return '';
+
+  return String(value)
+    .normalize('NFKC')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s.-]/gu, '');
+}
+
 module.exports = {
   getCurrentMonthKey,
   getPreviousMonthKey,
   isToday,
   isCurrentMonth,
-  parseTransactionDate
+  parseTransactionDate,
+  normalizeText
 };
