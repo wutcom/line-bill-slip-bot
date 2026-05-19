@@ -33,6 +33,75 @@ app.get('/', (req, res) => {
   res.send('LINE Bill Slip Bot is running');
 });
 
+app.get('/help', (req, res) => {
+  res.type('html').send(`<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>วิธีใช้ LINE Bill Slip Bot</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, Tahoma, sans-serif;
+      line-height: 1.6;
+      color: #1f2933;
+      background: #f6f7f9;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 28px 20px 44px;
+      background: #fff;
+      min-height: 100vh;
+    }
+    h1 {
+      margin: 0 0 16px;
+      font-size: 28px;
+    }
+    h2 {
+      margin: 28px 0 10px;
+      font-size: 20px;
+    }
+    ul, ol {
+      padding-left: 24px;
+    }
+    code {
+      background: #eef2f7;
+      border-radius: 6px;
+      padding: 2px 6px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>วิธีใช้ LINE Bill Slip Bot</h1>
+    <h2>บันทึกบิลหรือสลิป</h2>
+    <ol>
+      <li>กดเมนู <code>ส่งบิล</code></li>
+      <li>ส่งรูปบิล ใบเสร็จ หรือสลิปโอนเงิน</li>
+      <li>ระบบจะอ่าน OCR และบันทึกลง Google Sheet</li>
+    </ol>
+
+    <h2>ดูสรุป</h2>
+    <ul>
+      <li><code>ดูวันนี้</code> ดูยอดรวมของวันนี้</li>
+      <li><code>เดือนนี้</code> ดูยอดรวมของเดือนนี้</li>
+      <li><code>ดูคงเหลือ</code> ดูแผนที่ยังเหลือ</li>
+    </ul>
+
+    <h2>จัดการแผนรายเดือน</h2>
+    <ul>
+      <li><code>เพิ่มแผน UOB 24677</code></li>
+      <li><code>แผนเดือนนี้</code></li>
+      <li><code>จ่ายแล้ว UOB 5000</code></li>
+      <li><code>copy แผนเดือนก่อน</code></li>
+    </ul>
+  </main>
+</body>
+</html>`);
+});
+
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
   try {
     res.status(200).end();
