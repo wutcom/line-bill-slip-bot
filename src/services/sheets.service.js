@@ -6,10 +6,7 @@ function getGoogleAuth() {
   return new google.auth.JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     key: privateKey,
-    scopes: [
-      'https://www.googleapis.com/auth/spreadsheets',
-      'https://www.googleapis.com/auth/drive.file'
-    ]
+    scopes: ['https://www.googleapis.com/auth/spreadsheets']
   });
 }
 
