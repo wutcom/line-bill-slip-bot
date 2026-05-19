@@ -37,6 +37,7 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
         </details>
 
         <p className="nav-note">Data comes from PostgreSQL after the Google Sheets sync job runs.</p>
+        <a className="signout-link" href="/api/auth/signout">Sign out</a>
       </aside>
 
       <main className="workspace">
