@@ -80,10 +80,14 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
   min-height: 48px;
+  border: 0;
   border-radius: 8px;
   background: var(--accent);
   color: white;
+  cursor: pointer;
+  font: inherit;
   font-weight: 850;
 }
 
