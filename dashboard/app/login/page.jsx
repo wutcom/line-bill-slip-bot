@@ -1,3 +1,5 @@
+import GoogleSignInButton from '../../components/GoogleSignInButton';
+
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
@@ -8,7 +10,6 @@ export default async function LoginPage({ searchParams }) {
   const params = await searchParams;
   const callbackUrl = getSafeCallbackUrl(params?.callbackUrl);
   const error = params?.error;
-  const googleHref = `/api/auth/signin/google?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 
   return (
     <main className="login-page">
@@ -24,9 +25,7 @@ export default async function LoginPage({ searchParams }) {
           </div>
         ) : null}
 
-        <a className="google-button" href={googleHref}>
-          Continue with Google
-        </a>
+        <GoogleSignInButton callbackUrl={callbackUrl} />
       </section>
     </main>
   );
