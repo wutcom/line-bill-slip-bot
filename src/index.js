@@ -34,6 +34,8 @@ app.get('/', (req, res) => {
 });
 
 app.get('/help', (req, res) => {
+  const dashboardUrl = process.env.DASHBOARD_URL || 'https://web-dashboard-2mpq.onrender.com';
+
   res.type('html').send(`<!doctype html>
 <html lang="th">
 <head>
@@ -71,6 +73,19 @@ app.get('/help', (req, res) => {
       border-radius: 6px;
       padding: 2px 6px;
     }
+    .dashboard-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      margin-top: 10px;
+      border-radius: 8px;
+      background: #0f766e;
+      color: white;
+      padding: 0 18px;
+      font-weight: 700;
+      text-decoration: none;
+    }
   </style>
 </head>
 <body>
@@ -89,6 +104,7 @@ app.get('/help', (req, res) => {
       <li><code>เดือนนี้</code> ดูยอดรวมของเดือนนี้</li>
       <li><code>ดูคงเหลือ</code> ดูแผนที่ยังเหลือ</li>
     </ul>
+    <a class="dashboard-link" href="${dashboardUrl}" target="_blank" rel="noopener noreferrer">เปิด Dashboard</a>
 
     <h2>จัดการแผนรายเดือน</h2>
     <ul>
