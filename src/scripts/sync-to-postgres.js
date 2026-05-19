@@ -434,7 +434,11 @@ function getLegacyTransactionHeaders() {
     'ReferenceNo',
     'Category',
     'Description',
-    'RawText'
+    'RawText',
+    'ImageFileId',
+    'ImageUrl',
+    'ImageStoredAt',
+    'OcrConfidence'
   ];
 }
 
