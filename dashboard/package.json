@@ -6,11 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:render": "next start -H 0.0.0.0 -p $PORT",
     "lint": "next lint"
   },
   "dependencies": {
     "line-bill-slip-bot": "file:..",
     "next": "^15.3.0",
+    "next-auth": "^4.24.14",
     "pg": "^8.13.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
