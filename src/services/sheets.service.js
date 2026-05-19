@@ -6,7 +6,10 @@ function getGoogleAuth() {
   return new google.auth.JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     key: privateKey,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    scopes: [
+      'https://www.googleapis.com/auth/spreadsheets',
+      'https://www.googleapis.com/auth/drive.file'
+    ]
   });
 }
 
@@ -51,6 +54,7 @@ async function updateRows(sheetName, range, values) {
 }
 
 module.exports = {
+  getGoogleAuth,
   getSheetsClient,
   getSheetRows,
   appendRows,
