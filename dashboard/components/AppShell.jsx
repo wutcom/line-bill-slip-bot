@@ -4,35 +4,37 @@ import { getCurrentMonthKey } from '../lib/dates';
 export default function AppShell({ children, users = [], selectedUserId, month, active = 'overview' }) {
   const selectedMonth = month || getCurrentMonthKey();
   const page = getPageMeta(active);
+  const navItems = getNavItems(selectedUserId, selectedMonth, active);
 
   return (
     <div className="app-shell">
       <aside className="side-nav">
-        <div>
+        <div className="brand-block">
           <p className="eyebrow">LINE Bill Slip Bot</p>
           <h1>Expense Dashboard</h1>
         </div>
 
-        <nav aria-label="Dashboard navigation">
-          <Link className={active === 'overview' ? 'active' : ''} href={`/?userId=${selectedUserId || ''}&month=${selectedMonth}`}>
-            Overview
-          </Link>
-          <Link className={active === 'budget' ? 'active' : ''} href={`/budget?userId=${selectedUserId || ''}&month=${selectedMonth}`}>
-            Budget Plan
-          </Link>
-          <Link className={active === 'transactions' ? 'active' : ''} href={`/transactions?userId=${selectedUserId || ''}&month=${selectedMonth}`}>
-            Transactions
-          </Link>
-          <Link className={active === 'categories' ? 'active' : ''} href={`/categories?userId=${selectedUserId || ''}&month=${selectedMonth}`}>
-            Categories
-          </Link>
-          <Link className={active === 'sync' ? 'active' : ''} href="/sync">
-            Sync Monitor
-          </Link>
-          <Link className={active === 'help' ? 'active' : ''} href="/help">
-            Help
-          </Link>
+        <nav className="desktop-nav" aria-label="Dashboard navigation">
+          {navItems.map((item) => (
+            <Link className={item.isActive ? 'active' : ''} href={item.href} key={item.href}>
+              {item.label}
+            </Link>
+          ))}
         </nav>
+
+        <details className="mobile-menu">
+          <summary aria-label="Open navigation menu">
+            <span>Menu</span>
+            <b aria-hidden="true">☰</b>
+          </summary>
+          <nav aria-label="Mobile dashboard navigation">
+            {navItems.map((item) => (
+              <Link className={item.isActive ? 'active' : ''} href={item.href} key={item.href}>
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        </details>
 
         <p className="nav-note">Data comes from PostgreSQL after the Google Sheets sync job runs.</p>
       </aside>
@@ -70,6 +72,23 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
       </main>
     </div>
   );
+}
+
+function getNavItems(selectedUserId, selectedMonth, active) {
+  const query = `userId=${selectedUserId || ''}&month=${selectedMonth}`;
+  const items = [
+    { id: 'overview', label: 'Overview', href: `/?${query}` },
+    { id: 'budget', label: 'Budget Plan', href: `/budget?${query}` },
+    { id: 'transactions', label: 'Transactions', href: `/transactions?${query}` },
+    { id: 'categories', label: 'Categories', href: `/categories?${query}` },
+    { id: 'sync', label: 'Sync Monitor', href: '/sync' },
+    { id: 'help', label: 'Help', href: '/help' }
+  ];
+
+  return items.map((item) => ({
+    ...item,
+    isActive: item.id === active
+  }));
 }
 
 function getPageMeta(active) {
