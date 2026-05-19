@@ -50,6 +50,43 @@ code {
   font-weight: 800;
 }
 
+.login-page {
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  padding: 24px;
+}
+
+.login-panel {
+  width: min(460px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 253, 250, 0.92);
+  box-shadow: var(--shadow);
+  padding: 28px;
+}
+
+.login-copy {
+  margin: 16px 0 22px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.login-error {
+  margin-bottom: 18px;
+}
+
+.google-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  font-weight: 850;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
@@ -232,6 +269,18 @@ h3 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.signout-link {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  justify-content: center;
 }
 
 .workspace {
@@ -796,6 +845,10 @@ h3 {
   }
 
   .nav-note {
+    display: none;
+  }
+
+  .signout-link {
     display: none;
   }
 
