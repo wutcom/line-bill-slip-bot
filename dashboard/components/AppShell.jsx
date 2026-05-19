@@ -19,13 +19,16 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
           <Link className={active === 'budget' ? 'active' : ''} href={`/budget?userId=${selectedUserId || ''}&month=${selectedMonth}`}>
             Budget Plan
           </Link>
+          <Link className={active === 'help' ? 'active' : ''} href="/help">
+            Help
+          </Link>
         </nav>
 
         <p className="nav-note">Data comes from PostgreSQL after the Google Sheets sync job runs.</p>
       </aside>
 
       <main className="workspace">
-        <form className="toolbar" action={active === 'budget' ? '/budget' : '/'}>
+        {active === 'help' ? null : <form className="toolbar" action={active === 'budget' ? '/budget' : '/'}>
           <div>
             <p className="eyebrow">Current scope</p>
             <h2>{active === 'budget' ? 'Budget Plan' : 'Overview'}</h2>
@@ -51,7 +54,7 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
 
             <button type="submit">Apply</button>
           </div>
-        </form>
+        </form>}
 
         {children}
       </main>
