@@ -1,33 +1,36 @@
 import { NextResponse } from 'next/server';
+import { getToken } from 'next-auth/jwt';
 
-export function middleware(request) {
-  const username = process.env.DASHBOARD_BASIC_AUTH_USERNAME;
-  const password = process.env.DASHBOARD_BASIC_AUTH_PASSWORD;
+export async function middleware(request) {
+  const { pathname, search } = request.nextUrl;
 
-  if (!username || !password) {
+  if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 
-  const auth = request.headers.get('authorization') || '';
-  const [scheme, encoded] = auth.split(' ');
+  const token = await getToken({
+    req: request,
+    secret: process.env.AUTH_SECRET
+  });
 
-  if (scheme === 'Basic' && encoded) {
-    const decoded = atob(encoded);
-    const separatorIndex = decoded.indexOf(':');
-    const inputUser = decoded.slice(0, separatorIndex);
-    const inputPassword = decoded.slice(separatorIndex + 1);
-
-    if (inputUser === username && inputPassword === password) {
-      return NextResponse.next();
-    }
+  if (token) {
+    return NextResponse.next();
   }
 
-  return new NextResponse('Authentication required', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="Expense Dashboard"'
-    }
-  });
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = '/login';
+  loginUrl.searchParams.set('callbackUrl', `${pathname}${search}`);
+
+  return NextResponse.redirect(loginUrl);
+}
+
+function isPublicPath(pathname) {
+  return (
+    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/_next') ||
+    pathname === '/login' ||
+    pathname === '/favicon.ico'
+  );
 }
 
 export const config = {
