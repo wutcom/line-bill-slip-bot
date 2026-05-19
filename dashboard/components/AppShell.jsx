@@ -3,6 +3,7 @@ import { getCurrentMonthKey } from '../lib/dates';
 
 export default function AppShell({ children, users = [], selectedUserId, month, active = 'overview' }) {
   const selectedMonth = month || getCurrentMonthKey();
+  const page = getPageMeta(active);
 
   return (
     <div className="app-shell">
@@ -19,6 +20,15 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
           <Link className={active === 'budget' ? 'active' : ''} href={`/budget?userId=${selectedUserId || ''}&month=${selectedMonth}`}>
             Budget Plan
           </Link>
+          <Link className={active === 'transactions' ? 'active' : ''} href={`/transactions?userId=${selectedUserId || ''}&month=${selectedMonth}`}>
+            Transactions
+          </Link>
+          <Link className={active === 'categories' ? 'active' : ''} href={`/categories?userId=${selectedUserId || ''}&month=${selectedMonth}`}>
+            Categories
+          </Link>
+          <Link className={active === 'sync' ? 'active' : ''} href="/sync">
+            Sync Monitor
+          </Link>
           <Link className={active === 'help' ? 'active' : ''} href="/help">
             Help
           </Link>
@@ -28,10 +38,10 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
       </aside>
 
       <main className="workspace">
-        {active === 'help' ? null : <form className="toolbar" action={active === 'budget' ? '/budget' : '/'}>
+        {active === 'help' || active === 'sync' ? null : <form className="toolbar" action={page.action}>
           <div>
             <p className="eyebrow">Current scope</p>
-            <h2>{active === 'budget' ? 'Budget Plan' : 'Overview'}</h2>
+            <h2>{page.title}</h2>
           </div>
 
           <div className="filters">
@@ -60,4 +70,15 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
       </main>
     </div>
   );
+}
+
+function getPageMeta(active) {
+  const pages = {
+    overview: { title: 'Overview', action: '/' },
+    budget: { title: 'Budget Plan', action: '/budget' },
+    transactions: { title: 'Transactions', action: '/transactions' },
+    categories: { title: 'Categories', action: '/categories' }
+  };
+
+  return pages[active] || pages.overview;
 }
