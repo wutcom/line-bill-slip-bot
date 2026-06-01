@@ -2,8 +2,8 @@ import { formatMoney, formatPercent } from '../lib/format';
 
 export default function BudgetPlanList({ plans = [] }) {
   const totalPlan = plans.reduce((sum, plan) => sum + plan.planAmount, 0);
-  const totalSpent = plans.reduce((sum, plan) => sum + plan.spentAmount, 0);
-  const totalRemaining = totalPlan - totalSpent;
+  const totalPaid = plans.reduce((sum, plan) => sum + (plan.paidAmount ?? plan.spentAmount), 0);
+  const totalRemaining = totalPlan - totalPaid;
 
   return (
     <section className="budget-workspace">
@@ -13,8 +13,8 @@ export default function BudgetPlanList({ plans = [] }) {
           <strong>{formatMoney(totalPlan)}</strong>
         </div>
         <div>
-          <span>Spent</span>
-          <strong>{formatMoney(totalSpent)}</strong>
+          <span>Paid</span>
+          <strong>{formatMoney(totalPaid)}</strong>
         </div>
         <div>
           <span>Remaining</span>
@@ -29,7 +29,7 @@ export default function BudgetPlanList({ plans = [] }) {
             <div className="plan-main">
               <div>
                 <h3>{plan.planName}</h3>
-                <p>{plan.categoryName}</p>
+                <p>{plan.categoryName} · {plan.paymentCount || 0} payments</p>
               </div>
               <strong>{formatMoney(plan.planAmount)}</strong>
             </div>
@@ -45,7 +45,7 @@ export default function BudgetPlanList({ plans = [] }) {
             </div>
 
             <div className="plan-metrics">
-              <span>Spent {formatMoney(plan.spentAmount)}</span>
+              <span>Paid {formatMoney(plan.paidAmount ?? plan.spentAmount)}</span>
               <span className={plan.remainingAmount < 0 ? 'danger-text' : ''}>
                 Remaining {formatMoney(plan.remainingAmount)}
               </span>
