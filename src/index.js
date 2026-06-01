@@ -10,8 +10,8 @@ const {
   downloadLineImage
 } = require('./services/line.service');
 
-const { analyzeImage } = require('./services/openai.service');
-const { getSheetRows, appendRows } = require('./services/sheets.service');
+const { analyzeLineImage } = require('./services/openai.service');
+const { getSheetRows, ensureSheetWithHeaders, appendRows } = require('./services/sheets.service');
 const { getTodaySummary, getMonthlySummary } = require('./services/summary.service');
 
 const {
@@ -30,6 +30,25 @@ const app = express();
 const processedMessages = new Set();
 
 const TRANSACTION_SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
+const BODY_METRICS_SHEET_NAME = process.env.BODY_METRICS_SHEET_NAME || 'BodyMetrics';
+const BODY_METRICS_HEADERS = [
+  'CreatedAt',
+  'MessageId',
+  'UserId',
+  'ReportDate',
+  'WeightKg',
+  'Bmi',
+  'BodyFatPct',
+  'MuscleMassKg',
+  'MusclePct',
+  'BoneMassPct',
+  'BmrKcal',
+  'WaterPct',
+  'FatMassKg',
+  'FatFreeWeightKg',
+  'RawText',
+  'OcrConfidence'
+];
 
 app.get('/', (req, res) => {
   res.send('LINE Bill Slip Bot is running');
@@ -231,7 +250,53 @@ async function handleEvent(event) {
 
   try {
     const imageBuffer = await downloadLineImage(messageId);
-    const result = await analyzeImage(imageBuffer);
+    const analysis = await analyzeLineImage(imageBuffer);
+    const documentKind = normalizeDocumentKind(analysis.documentKind);
+
+    if (documentKind === 'body_metrics') {
+      const result = analysis.bodyMetrics || {};
+      await ensureBodyMetricsSheet();
+
+      const isDuplicate = await isDuplicateInBodyMetricsSheet(messageId, userId, result);
+
+      if (isDuplicate) {
+        return pushSafe(
+          userId,
+          `รายการสุขภาพนี้เคยถูกบันทึกแล้วครับ
+
+น้ำหนัก: ${result.weightKg || '-'} kg
+BMI: ${result.bmi || '-'}
+ไขมัน: ${result.bodyFatPct || '-'}%
+กล้ามเนื้อ: ${result.muscleMassKg || '-'} kg`
+        );
+      }
+
+      await appendBodyMetricsToGoogleSheet({
+        messageId,
+        userId,
+        ...result
+      });
+
+      return pushSafe(
+        userId,
+        `บันทึกข้อมูลสุขภาพเรียบร้อยครับ
+
+น้ำหนัก: ${result.weightKg || '-'} kg
+BMI: ${result.bmi || '-'}
+ไขมัน: ${result.bodyFatPct || '-'}%
+กล้ามเนื้อ: ${result.muscleMassKg || '-'} kg
+BMR: ${result.bmrKcal || '-'} kcal`
+      );
+    }
+
+    if (documentKind === 'unknown') {
+      return pushSafe(
+        userId,
+        'ขออภัยครับ รูปนี้ไม่ใช่บิล/สลิป หรือรายงานสุขภาพที่ระบบอ่านได้'
+      );
+    }
+
+    const result = analysis.transaction || {};
 
     const isDuplicate = await isDuplicateInGoogleSheet(messageId, result);
 
@@ -296,6 +361,38 @@ async function isDuplicateInGoogleSheet(messageId, data) {
   });
 }
 
+async function ensureBodyMetricsSheet() {
+  await ensureSheetWithHeaders(BODY_METRICS_SHEET_NAME, BODY_METRICS_HEADERS);
+}
+
+async function isDuplicateInBodyMetricsSheet(messageId, userId, data) {
+  const rows = await getSheetRows(BODY_METRICS_SHEET_NAME, 'A:P');
+  const reportDate = normalizeText(getBodyMetricsReportDate(data));
+  const weightKg = normalizeText(data.weightKg);
+  const bmi = normalizeText(data.bmi);
+
+  return rows.slice(1).some((row) => {
+    const existingMessageId = normalizeText(row[1]);
+    const existingUserId = normalizeText(row[2]);
+    const existingReportDate = normalizeText(row[3]);
+    const existingWeightKg = normalizeText(row[4]);
+    const existingBmi = normalizeText(row[5]);
+
+    if (messageId && existingMessageId === normalizeText(messageId)) return true;
+
+    return Boolean(
+      userId &&
+      reportDate &&
+      weightKg &&
+      bmi &&
+      existingUserId === normalizeText(userId) &&
+      existingReportDate === reportDate &&
+      existingWeightKg === weightKg &&
+      existingBmi === bmi
+    );
+  });
+}
+
 async function appendTransactionToGoogleSheet(data) {
   await appendRows(TRANSACTION_SHEET_NAME, 'A:O', [[
     new Date().toISOString(),
@@ -314,6 +411,67 @@ async function appendTransactionToGoogleSheet(data) {
     data.imageStoredAt || '',
     data.ocrConfidence || data.confidence || ''
   ]]);
+}
+
+async function appendBodyMetricsToGoogleSheet(data) {
+  await appendRows(BODY_METRICS_SHEET_NAME, 'A:P', [[
+    new Date().toISOString(),
+    data.messageId || '',
+    data.userId || '',
+    getBodyMetricsReportDate(data),
+    toSheetNumber(data.weightKg),
+    toSheetNumber(data.bmi),
+    toSheetNumber(data.bodyFatPct),
+    toSheetNumber(data.muscleMassKg),
+    toSheetNumber(data.musclePct),
+    toSheetNumber(data.boneMassPct),
+    toSheetNumber(data.bmrKcal),
+    toSheetNumber(data.waterPct),
+    toSheetNumber(data.fatMassKg),
+    toSheetNumber(data.fatFreeWeightKg),
+    data.rawText || '',
+    data.ocrConfidence || data.confidence || ''
+  ]]);
+}
+
+function getBodyMetricsReportDate(data) {
+  return data.reportDate || getBangkokDate();
+}
+
+function getBangkokDate() {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+
+  const values = parts.reduce((map, part) => {
+    map[part.type] = part.value;
+    return map;
+  }, {});
+
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function toSheetNumber(value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+
+  const match = String(value).replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+  if (!match) return '';
+
+  const number = Number(match[0]);
+  return Number.isFinite(number) ? number : '';
+}
+
+function normalizeDocumentKind(documentKind) {
+  const text = String(documentKind || '').trim().toLowerCase().replace(/\s+/g, '_');
+
+  if (text === 'body_metrics' || text === 'health' || text === 'health_report') return 'body_metrics';
+  if (text === 'transaction' || text === 'bill' || text === 'receipt' || text === 'transfer_slip') return 'transaction';
+
+  return 'unknown';
 }
 
 setInterval(() => {
