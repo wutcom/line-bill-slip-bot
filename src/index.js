@@ -264,7 +264,7 @@ async function handleEvent(event) {
     }
 
     if (pendingFoodPhotos.has(userId)) {
-      return handleFoodPortionReply(event, userId, text);
+      return handleFoodConfirmationReply(event, userId, text);
     }
 
     return replySafe(event.replyToken, 'กรุณาส่งรูปบิล/สลิป รูปสุขภาพ หรือรูปอาหารครับ');
@@ -376,22 +376,18 @@ BMR: ${result.bmrKcal || '-'} kcal`
 
     if (documentKind === 'food_photo') {
       const result = analysis.foodPhoto || {};
+      const draft = buildFoodPhotoDraft(result);
 
       pendingFoodPhotos.set(userId, {
         messageId,
         foodPhoto: result,
+        draft,
         createdAt: Date.now()
       });
 
       return pushSafe(
         userId,
-        `เห็นเป็นอาหารประมาณนี้ครับ:
-${result.detectedFood || '-'}
-
-เพื่อให้คำนวณแม่นขึ้น ช่วยตอบปริมาณแบบนี้ครับ:
-มื้อเที่ยง ข้าว 2 ทัพพี ผัดพริกแกงหมู 1 ทัพพี ไข่ดาว 1 ฟอง
-
-ถ้าไม่ต้องการบันทึก พิมพ์ "ยกเลิก"`
+        formatFoodPhotoDraftMessage(draft)
       );
     }
 
@@ -499,13 +495,63 @@ async function isDuplicateInBodyMetricsSheet(messageId, userId, data) {
   });
 }
 
-async function handleFoodPortionReply(event, userId, text) {
+async function handleFoodConfirmationReply(event, userId, text) {
   const pending = pendingFoodPhotos.get(userId);
 
-  await replySafe(event.replyToken, 'รับปริมาณอาหารแล้วครับ กำลังคำนวณและบันทึกลงชีต');
+  if (isConfirmText(text)) {
+    await replySafe(event.replyToken, 'ยืนยันแล้วครับ กำลังบันทึกลงชีต');
+
+    try {
+      await ensureNutritionLogsSheet();
+
+      const isDuplicate = await isDuplicateInNutritionLogsSheet(pending.messageId);
+
+      if (isDuplicate) {
+        pendingFoodPhotos.delete(userId);
+
+        return pushSafe(
+          userId,
+          `รายการอาหารนี้เคยถูกบันทึกแล้วครับ
+
+มื้อ: ${pending.draft.mealName || '-'}
+แคลอรี่: ${pending.draft.estimatedKcal || '-'} kcal`
+        );
+      }
+
+      await appendNutritionLogToGoogleSheet({
+        messageId: pending.messageId,
+        userId,
+        sourceType: 'food_photo_confirmed',
+        ...pending.draft,
+        userPortionText: pending.draft.portionSummary || 'ยืนยันจากร่าง'
+      });
+
+      pendingFoodPhotos.delete(userId);
+
+      return pushSafe(userId, formatFoodSavedMessage(pending.draft));
+    } catch (error) {
+      console.error('Confirm food photo error:', error);
+
+      return pushSafe(
+        userId,
+        'ขออภัยครับ ยังบันทึกอาหารไม่ได้ ลองพิมพ์ "ยืนยัน" อีกครั้ง หรือส่งรูปใหม่ครับ'
+      );
+    }
+  }
+
+  const correctionText = getFoodCorrectionText(text);
+
+  if (!correctionText) {
+    return replySafe(
+      event.replyToken,
+      'ถ้าถูกต้องพิมพ์ "ยืนยัน" หรือถ้าจะแก้ พิมพ์เช่น "แก้ ข้าว 1 ทัพพี ไข่ดาว 1 ฟอง" ครับ'
+    );
+  }
+
+  await replySafe(event.replyToken, 'รับข้อมูลแก้ไขแล้วครับ กำลังคำนวณใหม่และบันทึกลงชีต');
 
   try {
-    const result = await completeFoodPhotoLog(pending.foodPhoto, text);
+    const result = await completeFoodPhotoLog(pending.foodPhoto, correctionText);
     await ensureNutritionLogsSheet();
 
     const isDuplicate = await isDuplicateInNutritionLogsSheet(pending.messageId);
@@ -525,31 +571,20 @@ async function handleFoodPortionReply(event, userId, text) {
     await appendNutritionLogToGoogleSheet({
       messageId: pending.messageId,
       userId,
-      sourceType: 'food_photo_with_user_portion',
+      sourceType: 'food_photo_with_user_edit',
       ...result,
-      userPortionText: result.userPortionText || text
+      userPortionText: result.userPortionText || correctionText
     });
 
     pendingFoodPhotos.delete(userId);
 
-    return pushSafe(
-      userId,
-      `บันทึกอาหารเรียบร้อยครับ
-
-มื้อ: ${result.mealName || '-'}
-อาหาร: ${result.detectedFood || '-'}
-แคลอรี่: ${result.estimatedKcal || '-'} kcal
-โปรตีน: ${result.proteinG || '-'} g
-คาร์บ: ${result.carbG || '-'} g
-ไขมัน: ${result.fatG || '-'} g
-ความมั่นใจ: ${result.confidence || 'medium'}`
-    );
+    return pushSafe(userId, formatFoodSavedMessage(result));
   } catch (error) {
     console.error('Process food portion reply error:', error);
 
     return pushSafe(
       userId,
-      'ขออภัยครับ ยังบันทึกอาหารไม่ได้ ลองตอบปริมาณอีกครั้ง เช่น "มื้อเที่ยง ข้าว 2 ทัพพี ผัดพริกแกงหมู 1 ทัพพี ไข่ดาว 1 ฟอง"'
+      'ขออภัยครับ ยังบันทึกอาหารไม่ได้ ลองพิมพ์ "ยืนยัน" หรือ "แก้ มื้อเที่ยง ข้าว 2 ทัพพี ผัดพริกแกงหมู 1 ทัพพี ไข่ดาว 1 ฟอง"'
     );
   }
 }
@@ -676,6 +711,101 @@ function normalizeDocumentKind(documentKind) {
   if (text === 'transaction' || text === 'bill' || text === 'receipt' || text === 'transfer_slip') return 'transaction';
 
   return 'unknown';
+}
+
+function buildFoodPhotoDraft(foodPhoto) {
+  const estimatedKcalMin = toSheetNumber(foodPhoto.estimatedKcalMin);
+  const estimatedKcalMax = toSheetNumber(foodPhoto.estimatedKcalMax);
+  const proteinGMin = toSheetNumber(foodPhoto.proteinGMin);
+  const proteinGMax = toSheetNumber(foodPhoto.proteinGMax);
+  const carbGMin = toSheetNumber(foodPhoto.carbGMin);
+  const carbGMax = toSheetNumber(foodPhoto.carbGMax);
+  const fatGMin = toSheetNumber(foodPhoto.fatGMin);
+  const fatGMax = toSheetNumber(foodPhoto.fatGMax);
+
+  return {
+    logDate: foodPhoto.logDate || getBangkokDate(),
+    mealName: foodPhoto.mealName || guessMealName(),
+    detectedFood: foodPhoto.detectedFood || '',
+    portionSummary: foodPhoto.portionSummary || '',
+    estimatedKcal: toSheetNumber(foodPhoto.estimatedKcal) || midpoint(estimatedKcalMin, estimatedKcalMax),
+    estimatedKcalMin,
+    estimatedKcalMax,
+    proteinG: toSheetNumber(foodPhoto.proteinG) || midpoint(proteinGMin, proteinGMax),
+    carbG: toSheetNumber(foodPhoto.carbG) || midpoint(carbGMin, carbGMax),
+    fatG: toSheetNumber(foodPhoto.fatG) || midpoint(fatGMin, fatGMax),
+    sugarLevel: foodPhoto.sugarLevel || 'unknown',
+    sodiumLevel: foodPhoto.sodiumLevel || 'unknown',
+    confidence: foodPhoto.confidence || 'medium',
+    note: 'Photo-only estimate confirmed by user.',
+    rawText: foodPhoto.rawObservation || ''
+  };
+}
+
+function formatFoodPhotoDraftMessage(draft) {
+  return `ผมประเมินจากรูปว่า:
+
+มื้อ: ${draft.mealName || '-'}
+อาหาร: ${draft.detectedFood || '-'}
+ปริมาณที่เดา: ${draft.portionSummary || '-'}
+
+ประมาณ:
+แคลอรี่: ${formatRange(draft.estimatedKcalMin, draft.estimatedKcalMax, draft.estimatedKcal)} kcal
+โปรตีน: ${draft.proteinG || '-'} g
+คาร์บ: ${draft.carbG || '-'} g
+ไขมัน: ${draft.fatG || '-'} g
+ความมั่นใจ: ${draft.confidence || 'medium'}
+
+ถ้าถูกต้อง พิมพ์ "ยืนยัน"
+ถ้าจะแก้ พิมพ์ "แก้ ข้าว 1 ทัพพี ไข่ดาว 1 ฟอง"
+ถ้าไม่บันทึก พิมพ์ "ยกเลิก"`;
+}
+
+function formatFoodSavedMessage(result) {
+  return `บันทึกอาหารเรียบร้อยครับ
+
+มื้อ: ${result.mealName || '-'}
+อาหาร: ${result.detectedFood || '-'}
+แคลอรี่: ${result.estimatedKcal || '-'} kcal
+โปรตีน: ${result.proteinG || '-'} g
+คาร์บ: ${result.carbG || '-'} g
+ไขมัน: ${result.fatG || '-'} g
+ความมั่นใจ: ${result.confidence || 'medium'}`;
+}
+
+function formatRange(min, max, fallback) {
+  if (min && max) return `${min}-${max}`;
+  return fallback || '-';
+}
+
+function midpoint(min, max) {
+  if (min && max) return Math.round((Number(min) + Number(max)) / 2);
+  return min || max || '';
+}
+
+function guessMealName() {
+  const hour = Number(new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    hour12: false
+  }).format(new Date()));
+
+  if (hour >= 5 && hour < 10) return 'มื้อเช้า';
+  if (hour >= 10 && hour < 15) return 'มื้อเที่ยง';
+  if (hour >= 15 && hour < 18) return 'ของว่าง';
+  return 'มื้อเย็น';
+}
+
+function getFoodCorrectionText(text) {
+  return String(text || '')
+    .replace(/^(แก้ไข|แก้|edit)\s*/i, '')
+    .trim();
+}
+
+function isConfirmText(text) {
+  const normalized = normalizeText(text);
+
+  return ['ยืนยัน', 'ถูกต้อง', 'ใช่', 'บันทึก', 'confirm', 'ok', 'okay'].includes(normalized);
 }
 
 function isCancelText(text) {
