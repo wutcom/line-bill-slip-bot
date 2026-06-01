@@ -7,6 +7,7 @@ const { parseAmount } = require('../utils/money.util');
 
 const TRANSACTION_SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
 const BUDGET_SHEET_NAME = process.env.BUDGET_SHEET_NAME || 'BudgetPlan';
+const BUDGET_PAYMENT_SHEET_NAME = process.env.BUDGET_PAYMENT_SHEET_NAME || 'BudgetPayments';
 
 const CATEGORY_CODES = {
   food: 'food',
@@ -29,20 +30,23 @@ async function main() {
       const categoryMap = await loadCategoryMap(client);
       const transactionStats = await syncTransactions(client, categoryMap, syncRunId);
       const budgetStats = await syncBudgetPlans(client, categoryMap, syncRunId);
+      const budgetPaymentStats = await syncBudgetPayments(client, syncRunId);
 
       await finishSyncRun(client, syncRunId, 'success', {
-        rowsRead: transactionStats.rowsRead + budgetStats.rowsRead,
-        rowsInserted: transactionStats.rowsInserted + budgetStats.rowsInserted,
-        rowsUpdated: transactionStats.rowsUpdated + budgetStats.rowsUpdated,
+        rowsRead: transactionStats.rowsRead + budgetStats.rowsRead + budgetPaymentStats.rowsRead,
+        rowsInserted: transactionStats.rowsInserted + budgetStats.rowsInserted + budgetPaymentStats.rowsInserted,
+        rowsUpdated: transactionStats.rowsUpdated + budgetStats.rowsUpdated + budgetPaymentStats.rowsUpdated,
         metadata: {
           transactionStats,
-          budgetStats
+          budgetStats,
+          budgetPaymentStats
         }
       });
 
       console.log('Sync completed:', {
         transactionStats,
-        budgetStats
+        budgetStats,
+        budgetPaymentStats
       });
     } catch (error) {
       await finishSyncRun(client, syncRunId, 'failed', {
@@ -155,6 +159,54 @@ async function syncBudgetPlans(client, categoryMap, syncRunId) {
       stats[result]++;
     } catch (error) {
       await insertRowError(client, syncRunId, BUDGET_SHEET_NAME, row.rowNumber, error, row.values);
+    }
+  }
+
+  return stats;
+}
+
+async function syncBudgetPayments(client, syncRunId) {
+  const rows = await getSheetRows(BUDGET_PAYMENT_SHEET_NAME, 'A:Z');
+  const { headers, dataRows } = parseSheetRows(rows);
+  const stats = createStats(dataRows.length);
+
+  for (const row of dataRows) {
+    try {
+      const source = mapRow(headers, row.values, getLegacyBudgetPaymentHeaders());
+      const paymentId = value(source, 'PaymentId');
+      const userIdText = value(source, 'UserId');
+      const planName = value(source, 'PlanName');
+
+      if (!paymentId || !userIdText || !planName) {
+        continue;
+      }
+
+      const userId = await upsertUser(client, userIdText);
+      const planMonth = parseMonth(value(source, 'PlanMonth'));
+
+      if (!planMonth) {
+        throw new Error(`Invalid budget payment month at row ${row.rowNumber}`);
+      }
+
+      const budgetPlanId = await findBudgetPlanId(client, userId, planMonth, planName);
+      const result = await upsertBudgetPayment(client, {
+        paymentId,
+        userId,
+        budgetPlanId,
+        planMonth,
+        planName,
+        amount: parseAmount(value(source, 'Amount')),
+        paymentDate: parseDate(value(source, 'PaymentDate')),
+        note: value(source, 'Note'),
+        status: normalizeBudgetPaymentStatus(value(source, 'Status')),
+        sourceSheetRow: row.rowNumber,
+        createdAt: parseTimestamp(value(source, 'CreatedAt')) || new Date(),
+        updatedAt: parseTimestamp(value(source, 'UpdatedAt')) || new Date()
+      });
+
+      stats[result]++;
+    } catch (error) {
+      await insertRowError(client, syncRunId, BUDGET_PAYMENT_SHEET_NAME, row.rowNumber, error, row.values);
     }
   }
 
@@ -379,6 +431,60 @@ async function upsertBudgetPlan(client, data) {
   return result.rows[0].inserted ? 'rowsInserted' : 'rowsUpdated';
 }
 
+async function findBudgetPlanId(client, userId, planMonth, planName) {
+  const result = await client.query(
+    `SELECT id
+     FROM budget_plans
+     WHERE user_id = $1
+       AND plan_month = $2
+       AND plan_name = $3
+     LIMIT 1`,
+    [userId, planMonth, planName]
+  );
+
+  return result.rows[0]?.id || null;
+}
+
+async function upsertBudgetPayment(client, data) {
+  const result = await client.query(
+    `INSERT INTO budget_payments (
+       payment_id, user_id, budget_plan_id, plan_month, plan_name,
+       amount, payment_date, note, status, source_sheet_row,
+       created_at, updated_at, synced_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+     ON CONFLICT (payment_id) DO UPDATE
+     SET user_id = EXCLUDED.user_id,
+         budget_plan_id = EXCLUDED.budget_plan_id,
+         plan_month = EXCLUDED.plan_month,
+         plan_name = EXCLUDED.plan_name,
+         amount = EXCLUDED.amount,
+         payment_date = EXCLUDED.payment_date,
+         note = EXCLUDED.note,
+         status = EXCLUDED.status,
+         source_sheet_row = EXCLUDED.source_sheet_row,
+         updated_at = NOW(),
+         synced_at = NOW()
+     RETURNING (xmax = 0) AS inserted`,
+    [
+      data.paymentId,
+      data.userId,
+      data.budgetPlanId,
+      data.planMonth,
+      data.planName,
+      data.amount,
+      data.paymentDate,
+      data.note || null,
+      data.status,
+      data.sourceSheetRow,
+      data.createdAt,
+      data.updatedAt
+    ]
+  );
+
+  return result.rows[0].inserted ? 'rowsInserted' : 'rowsUpdated';
+}
+
 function parseSheetRows(rows) {
   if (!rows || rows.length === 0) {
     return { headers: [], dataRows: [] };
@@ -456,6 +562,21 @@ function getLegacyBudgetHeaders() {
   ];
 }
 
+function getLegacyBudgetPaymentHeaders() {
+  return [
+    'PaymentId',
+    'PlanMonth',
+    'UserId',
+    'PlanName',
+    'Amount',
+    'PaymentDate',
+    'Note',
+    'Status',
+    'CreatedAt',
+    'UpdatedAt'
+  ];
+}
+
 function createStats(rowsRead) {
   return {
     rowsRead,
@@ -497,6 +618,13 @@ function normalizeBudgetStatus(status) {
   const text = String(status || '').trim().toLowerCase();
 
   if (['inactive', 'paid', 'archived'].includes(text)) return text;
+  return 'active';
+}
+
+function normalizeBudgetPaymentStatus(status) {
+  const text = String(status || '').trim().toLowerCase();
+
+  if (text === 'deleted') return 'deleted';
   return 'active';
 }
 
