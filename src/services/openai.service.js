@@ -138,13 +138,19 @@ Return JSON exactly in this shape:
     "confidence": ""
   },
   "foodPhoto": {
+    "mealName": "",
     "detectedFood": "",
+    "portionSummary": "",
+    "estimatedKcal": "",
     "estimatedKcalMin": "",
     "estimatedKcalMax": "",
+    "proteinG": "",
     "proteinGMin": "",
     "proteinGMax": "",
+    "carbG": "",
     "carbGMin": "",
     "carbGMax": "",
+    "fatG": "",
     "fatGMin": "",
     "fatGMax": "",
     "portionQuestions": "",
@@ -177,6 +183,9 @@ Nutrition log screenshot rules:
 
 Food photo rules:
 - detectedFood should be a concise Thai/English description of the likely foods.
+- mealName can be empty unless obvious from context.
+- portionSummary should be your best visual draft, for example "ข้าว 2 ทัพพี, ผัดพริกแกงหมู 1 ทัพพี, ไข่ดาว 1 ฟอง".
+- estimatedKcal/proteinG/carbG/fatG should be the midpoint estimates from your visual draft.
 - Use ranges for nutrition because photo-only estimates are uncertain.
 - portionQuestions should ask for meal name, rice/noodle amount, protein type, serving size, egg count, drink/sauce if relevant.
 `
