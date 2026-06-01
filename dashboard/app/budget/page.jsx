@@ -2,13 +2,13 @@ export const dynamic = 'force-dynamic';
 
 import AppShell from '../../components/AppShell';
 import BudgetPlanList from '../../components/BudgetPlanList';
-import { getCurrentMonthKey } from '../../lib/dates';
+import { getCurrentPlanMonthKey } from '../../lib/dates';
 import { getBudgetPlans } from '../../lib/queries/budget';
 import { getUsers } from '../../lib/queries/users';
 
 export default async function BudgetPage({ searchParams }) {
   const params = await searchParams;
-  const month = params?.month || getCurrentMonthKey();
+  const month = params?.month || getCurrentPlanMonthKey();
   const selectedUserId = params?.userId || '';
   const { users, budget, error } = await loadBudget({ userId: selectedUserId, month });
   const effectiveUserId = selectedUserId || budget.userId || users[0]?.id || '';
@@ -19,7 +19,7 @@ export default async function BudgetPage({ searchParams }) {
 
       <section className="section-intro">
         <h3>Plan status</h3>
-        <p>Budget progress is calculated from confirmed PostgreSQL transactions for the selected month.</p>
+        <p>Budget progress is calculated from recorded plan payments for the selected plan month.</p>
       </section>
 
       <BudgetPlanList plans={budget.plans} />
