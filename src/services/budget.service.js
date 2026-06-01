@@ -1,17 +1,21 @@
+const crypto = require('crypto');
 const { getSheetRows, appendRows, updateRows } = require('./sheets.service');
 const { parseAmount, formatMoney } = require('../utils/money.util');
 const { normalizeText } = require('../utils/text.util');
 const {
   getCurrentPlanMonthKey,
-  getPreviousPlanMonthKey,
-  isCurrentPlanCycle
+  getPreviousPlanMonthKey
 } = require('../utils/date.util');
 
 const BUDGET_SHEET_NAME = 'BudgetPlan';
-const TRANSACTION_SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
+const BUDGET_PAYMENT_SHEET_NAME = process.env.BUDGET_PAYMENT_SHEET_NAME || 'BudgetPayments';
 
 async function getBudgetRows() {
   return getSheetRows(BUDGET_SHEET_NAME, 'A:I');
+}
+
+async function getBudgetPaymentRows() {
+  return getSheetRows(BUDGET_PAYMENT_SHEET_NAME, 'A:J');
 }
 
 async function addBudgetPlan(userId, text) {
@@ -182,16 +186,162 @@ async function copyPreviousMonthPlans(userId) {
 async function markPlanPaid(userId, text) {
   const parts = text.trim().split(/\s+/);
 
-  if (parts.length < 2) {
+  if (parts.length < 3) {
     return 'รูปแบบไม่ถูกต้องครับ\nตัวอย่าง: จ่ายแล้ว UOB 5000';
   }
 
   const planName = parts[1];
-  const inputAmount = parts.length >= 3 ? parseAmount(parts[2]) : null;
+  const inputAmount = parseAmount(parts[2]);
+  const note = parts.slice(3).join(' ');
+
+  if (!inputAmount || inputAmount <= 0) {
+    return 'กรุณาระบุยอดที่จ่ายให้ถูกต้องครับ\nตัวอย่าง: จ่ายแล้ว UOB 5000';
+  }
 
   const month = getCurrentPlanMonthKey();
   const rows = await getBudgetRows();
 
+  const plan = findPlan(rows, userId, month, planName);
+
+  if (!plan) {
+    return `ไม่พบแผน ${planName} ของเดือนนี้ครับ`;
+  }
+
+  const paymentId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  await appendRows(BUDGET_PAYMENT_SHEET_NAME, 'A:J', [[
+    paymentId,
+    month,
+    userId,
+    plan.row[2] || planName,
+    inputAmount,
+    now.slice(0, 10),
+    note,
+    'Active',
+    now,
+    now
+  ]]);
+
+  const paidAmount = await calculatePaidFromBudgetPayments(userId, month, plan.row[2] || planName);
+  const { planAmount, remaining } = await updateBudgetPlanTotals(rows, plan, paidAmount);
+
+  return `บันทึกการจ่ายเรียบร้อยครับ
+
+PaymentId: ${paymentId}
+แผน: ${plan.row[2] || planName}
+เดือนแผน: ${month}
+จ่ายครั้งนี้: ${formatMoney(inputAmount)} บาท
+จ่ายแล้วรวม: ${formatMoney(paidAmount)} บาท
+ยอดแผน: ${formatMoney(planAmount)} บาท
+คงเหลือ: ${formatMoney(remaining)} บาท`;
+}
+
+async function getBudgetPaymentHistory(userId, text) {
+  const parts = text.trim().split(/\s+/);
+
+  if (parts.length < 2) {
+    return 'รูปแบบไม่ถูกต้องครับ\nตัวอย่าง: ประวัติจ่าย UOB';
+  }
+
+  const planName = parts[1];
+  const month = getCurrentPlanMonthKey();
+  const rows = await getBudgetPaymentRows();
+  const payments = getActivePayments(rows, userId, month, planName);
+
+  if (payments.length === 0) {
+    return `ยังไม่มีประวัติจ่ายของแผน ${planName} ในเดือนแผน ${month} ครับ`;
+  }
+
+  const totalPaid = payments.reduce((sum, payment) => sum + parseAmount(payment[4]), 0);
+  const paymentText = payments.map((payment, index) => {
+    const paymentId = payment[0] || '-';
+    const amount = parseAmount(payment[4]);
+    const paymentDate = payment[5] || '-';
+    const note = payment[6] ? ` (${payment[6]})` : '';
+
+    return `${index + 1}. ${paymentDate}: ${formatMoney(amount)} บาท${note}\nID: ${paymentId}`;
+  }).join('\n\n');
+
+  return `ประวัติจ่าย ${planName}
+เดือนแผน: ${month}
+
+${paymentText}
+
+จ่ายแล้วรวม: ${formatMoney(totalPaid)} บาท`;
+}
+
+async function deleteBudgetPayment(userId, text) {
+  const parts = text.trim().split(/\s+/);
+
+  if (parts.length < 2) {
+    return 'รูปแบบไม่ถูกต้องครับ\nตัวอย่าง: ลบจ่าย <PaymentId>';
+  }
+
+  const paymentIdInput = normalizeText(parts[1]);
+  const paymentRows = await getBudgetPaymentRows();
+  const paymentIndex = paymentRows.findIndex((row, index) =>
+    index > 0 &&
+    row[2] === userId &&
+    !isDeletedPayment(row) &&
+    normalizeText(row[0]).startsWith(paymentIdInput)
+  );
+
+  if (paymentIndex < 0) {
+    return `ไม่พบรายการจ่าย ID ${parts[1]} ครับ`;
+  }
+
+  const payment = paymentRows[paymentIndex];
+  const month = payment[1];
+  const planName = payment[3];
+  const now = new Date().toISOString();
+  const paymentSheetRowNumber = paymentIndex + 1;
+
+  await updateRows(BUDGET_PAYMENT_SHEET_NAME, `H${paymentSheetRowNumber}:J${paymentSheetRowNumber}`, [[
+    'Deleted',
+    payment[8] || now,
+    now
+  ]]);
+
+  const budgetRows = await getBudgetRows();
+  const plan = findPlan(budgetRows, userId, month, planName);
+
+  if (plan) {
+    const paidAmount = await calculatePaidFromBudgetPayments(userId, month, planName);
+    await updateBudgetPlanTotals(budgetRows, plan, paidAmount);
+  }
+
+  return `ลบรายการจ่ายเรียบร้อยครับ
+
+PaymentId: ${payment[0]}
+แผน: ${planName}
+เดือนแผน: ${month}
+ยอดที่ลบ: ${formatMoney(parseAmount(payment[4]))} บาท`;
+}
+
+async function calculatePaidFromBudgetPayments(userId, month, planName) {
+  const rows = await getBudgetPaymentRows();
+
+  return getActivePayments(rows, userId, month, planName)
+    .reduce((sum, row) => sum + parseAmount(row[4]), 0);
+}
+
+function getActivePayments(rows, userId, month, planName) {
+  const keyword = normalizeText(planName);
+
+  return rows.slice(1).filter(row =>
+    row[1] === month &&
+    row[2] === userId &&
+    normalizeText(row[3]) === keyword &&
+    !isDeletedPayment(row)
+  );
+}
+
+function isDeletedPayment(row) {
+  return normalizeText(row[7]) === 'deleted';
+}
+
+function findPlan(rows, userId, month, planName) {
   const rowIndex = rows.findIndex((row, index) =>
     index > 0 &&
     row[0] === month &&
@@ -200,64 +350,33 @@ async function markPlanPaid(userId, text) {
     row[6] !== 'Inactive'
   );
 
-  if (rowIndex < 0) {
-    return `ไม่พบแผน ${planName} ของเดือนนี้ครับ`;
-  }
+  if (rowIndex < 0) return null;
 
-  const row = rows[rowIndex];
+  return {
+    row: rows[rowIndex],
+    rowIndex
+  };
+}
+
+async function updateBudgetPlanTotals(rows, plan, paidAmount) {
+  const row = plan.row;
   const planAmount = parseAmount(row[3]);
-
-  let paidAmount = inputAmount;
-
-  if (!paidAmount || paidAmount <= 0) {
-    paidAmount = await calculatePaidFromTransactions(userId, planName);
-  }
-
   const remaining = Math.max(planAmount - paidAmount, 0);
   const now = new Date().toISOString();
-  const sheetRowNumber = rowIndex + 1;
+  const sheetRowNumber = plan.rowIndex + 1;
 
   await updateRows(BUDGET_SHEET_NAME, `E${sheetRowNumber}:I${sheetRowNumber}`, [[
     paidAmount,
     remaining,
-    'Active',
+    remaining <= 0 ? 'Paid' : 'Active',
     row[7] || now,
     now
   ]]);
 
-  return `อัปเดตจ่ายแล้วเรียบร้อยครับ
-
-แผน: ${planName}
-ยอดแผน: ${formatMoney(planAmount)} บาท
-จ่ายแล้ว: ${formatMoney(paidAmount)} บาท
-คงเหลือ: ${formatMoney(remaining)} บาท`;
-}
-
-async function calculatePaidFromTransactions(userId, planName) {
-  const rows = await getSheetRows(TRANSACTION_SHEET_NAME, 'A:K');
-
-  let total = 0;
-
-  rows.slice(1).forEach((row) => {
-    const rowUserId = row[2];
-    const shopName = row[4] || '';
-    const amountText = row[5] || '0';
-    const transactionDate = row[6] || '';
-    const description = row[9] || '';
-    const rawText = row[10] || '';
-
-    if (userId && rowUserId !== userId) return;
-    if (!isCurrentPlanCycle(transactionDate)) return;
-
-    const keyword = normalizeText(planName);
-    const combinedText = normalizeText(`${shopName} ${description} ${rawText}`);
-
-    if (!combinedText.includes(keyword)) return;
-
-    total += parseAmount(amountText);
-  });
-
-  return total;
+  return {
+    planAmount,
+    remaining
+  };
 }
 
 module.exports = {
@@ -265,5 +384,7 @@ module.exports = {
   getCurrentMonthPlans,
   getRemainingPlans,
   copyPreviousMonthPlans,
-  markPlanPaid
+  markPlanPaid,
+  getBudgetPaymentHistory,
+  deleteBudgetPayment
 };
