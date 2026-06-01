@@ -19,7 +19,9 @@ const {
   getCurrentMonthPlans,
   getRemainingPlans,
   copyPreviousMonthPlans,
-  markPlanPaid
+  markPlanPaid,
+  getBudgetPaymentHistory,
+  deleteBudgetPayment
 } = require('./services/budget.service');
 
 const { normalizeText } = require('./utils/text.util');
@@ -111,6 +113,8 @@ app.get('/help', (req, res) => {
       <li><code>เพิ่มแผน UOB 24677</code></li>
       <li><code>แผนเดือนนี้</code></li>
       <li><code>จ่ายแล้ว UOB 5000</code></li>
+      <li><code>ประวัติจ่าย UOB</code></li>
+      <li><code>ลบจ่าย PaymentId</code></li>
       <li><code>copy แผนเดือนก่อน</code></li>
     </ul>
   </main>
@@ -160,7 +164,23 @@ async function handleEvent(event) {
     }
 
     if (text === 'จ่ายแล้ว') {
-      return replySafe(event.replyToken, 'ตัวอย่าง:\nจ่ายแล้ว UOB\nจ่ายแล้ว UOB 5000');
+      return replySafe(event.replyToken, 'ตัวอย่าง:\nจ่ายแล้ว UOB 5000\nจ่ายแล้ว UOB 5000 งวด 1');
+    }
+
+    if (text.startsWith('ประวัติจ่าย ')) {
+      return replySafe(event.replyToken, await getBudgetPaymentHistory(userId, text));
+    }
+
+    if (text === 'ประวัติจ่าย') {
+      return replySafe(event.replyToken, 'ตัวอย่าง:\nประวัติจ่าย UOB');
+    }
+
+    if (text.startsWith('ลบจ่าย ')) {
+      return replySafe(event.replyToken, await deleteBudgetPayment(userId, text));
+    }
+
+    if (text === 'ลบจ่าย') {
+      return replySafe(event.replyToken, 'ตัวอย่าง:\nลบจ่าย 2c27b4f0');
     }
 
     if (text === 'ส่งบิล') {
@@ -184,8 +204,10 @@ async function handleEvent(event) {
 2. กด "ดูวันนี้" เพื่อสรุปวันนี้
 3. กด "เดือนนี้" เพื่อสรุปเดือนนี้
 4. พิมพ์ "เพิ่มแผน UOB 24677"
-5. พิมพ์ "จ่ายแล้ว UOB" หรือ "จ่ายแล้ว UOB 5000"
-6. กด "ดูคงเหลือ" เพื่อดูยอดแผนคงเหลือ`
+5. พิมพ์ "จ่ายแล้ว UOB 5000" เพื่อบันทึกการจ่ายรายครั้ง
+6. พิมพ์ "ประวัติจ่าย UOB" เพื่อดูรายการจ่ายของแผน
+7. พิมพ์ "ลบจ่าย PaymentId" หากบันทึกผิด
+8. กด "ดูคงเหลือ" เพื่อดูยอดแผนคงเหลือ`
       );
     }
 
