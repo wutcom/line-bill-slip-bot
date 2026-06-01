@@ -1,7 +1,11 @@
 const { getSheetRows, appendRows, updateRows } = require('./sheets.service');
 const { parseAmount, formatMoney } = require('../utils/money.util');
 const { normalizeText } = require('../utils/text.util');
-const { getCurrentMonthKey, getPreviousMonthKey, isCurrentMonth } = require('../utils/date.util');
+const {
+  getCurrentPlanMonthKey,
+  getPreviousPlanMonthKey,
+  isCurrentPlanCycle
+} = require('../utils/date.util');
 
 const BUDGET_SHEET_NAME = 'BudgetPlan';
 const TRANSACTION_SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
@@ -24,7 +28,7 @@ async function addBudgetPlan(userId, text) {
     return 'กรุณาระบุชื่อแผนและยอดเงินให้ถูกต้องครับ\nตัวอย่าง: เพิ่มแผน UOB 24677';
   }
 
-  const month = getCurrentMonthKey();
+  const month = getCurrentPlanMonthKey();
   const now = new Date().toISOString();
 
   await appendRows(BUDGET_SHEET_NAME, 'A:I', [[
@@ -48,7 +52,7 @@ async function addBudgetPlan(userId, text) {
 
 async function getCurrentMonthPlans(userId) {
   const rows = await getBudgetRows();
-  const month = getCurrentMonthKey();
+  const month = getCurrentPlanMonthKey();
 
   const plans = rows.slice(1).filter(row =>
     row[0] === month &&
@@ -91,7 +95,7 @@ ${planText}
 
 async function getRemainingPlans(userId) {
   const rows = await getBudgetRows();
-  const month = getCurrentMonthKey();
+  const month = getCurrentPlanMonthKey();
 
   const plans = rows.slice(1).filter(row =>
     row[0] === month &&
@@ -124,8 +128,8 @@ ${text}
 async function copyPreviousMonthPlans(userId) {
   const rows = await getBudgetRows();
 
-  const currentMonth = getCurrentMonthKey();
-  const previousMonth = getPreviousMonthKey();
+  const currentMonth = getCurrentPlanMonthKey();
+  const previousMonth = getPreviousPlanMonthKey();
 
   const currentPlans = rows.slice(1).filter(row =>
     row[0] === currentMonth &&
@@ -185,7 +189,7 @@ async function markPlanPaid(userId, text) {
   const planName = parts[1];
   const inputAmount = parts.length >= 3 ? parseAmount(parts[2]) : null;
 
-  const month = getCurrentMonthKey();
+  const month = getCurrentPlanMonthKey();
   const rows = await getBudgetRows();
 
   const rowIndex = rows.findIndex((row, index) =>
@@ -243,7 +247,7 @@ async function calculatePaidFromTransactions(userId, planName) {
     const rawText = row[10] || '';
 
     if (userId && rowUserId !== userId) return;
-    if (!isCurrentMonth(transactionDate)) return;
+    if (!isCurrentPlanCycle(transactionDate)) return;
 
     const keyword = normalizeText(planName);
     const combinedText = normalizeText(`${shopName} ${description} ${rawText}`);
