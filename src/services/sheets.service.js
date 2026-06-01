@@ -39,6 +39,45 @@ async function appendRows(sheetName, range, values) {
   });
 }
 
+async function ensureSheetWithHeaders(sheetName, headers) {
+  const sheets = getSheetsClient();
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+
+  const spreadsheet = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties.title'
+  });
+
+  const exists = (spreadsheet.data.sheets || []).some((sheet) => {
+    return sheet.properties?.title === sheetName;
+  });
+
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: sheetName
+              }
+            }
+          }
+        ]
+      }
+    });
+  }
+
+  const endColumn = toColumnName(headers.length);
+  const rows = await getSheetRows(sheetName, `A1:${endColumn}1`);
+  const hasHeaders = rows[0]?.some((cell) => String(cell || '').trim() !== '');
+
+  if (!hasHeaders) {
+    await updateRows(sheetName, `A1:${endColumn}1`, [headers]);
+  }
+}
+
 async function updateRows(sheetName, range, values) {
   const sheets = getSheetsClient();
 
@@ -50,10 +89,24 @@ async function updateRows(sheetName, range, values) {
   });
 }
 
+function toColumnName(columnCount) {
+  let number = columnCount;
+  let name = '';
+
+  while (number > 0) {
+    const remainder = (number - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    number = Math.floor((number - 1) / 26);
+  }
+
+  return name;
+}
+
 module.exports = {
   getGoogleAuth,
   getSheetsClient,
   getSheetRows,
+  ensureSheetWithHeaders,
   appendRows,
   updateRows
 };
