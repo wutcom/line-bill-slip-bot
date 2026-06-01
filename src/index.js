@@ -10,7 +10,7 @@ const {
   downloadLineImage
 } = require('./services/line.service');
 
-const { analyzeLineImage } = require('./services/openai.service');
+const { analyzeLineImage, completeFoodPhotoLog } = require('./services/openai.service');
 const { getSheetRows, ensureSheetWithHeaders, appendRows } = require('./services/sheets.service');
 const { getTodaySummary, getMonthlySummary } = require('./services/summary.service');
 
@@ -28,6 +28,7 @@ const { normalizeText } = require('./utils/text.util');
 
 const app = express();
 const processedMessages = new Set();
+const pendingFoodPhotos = new Map();
 
 const TRANSACTION_SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
 const BODY_METRICS_SHEET_NAME = process.env.BODY_METRICS_SHEET_NAME || 'BodyMetrics';
@@ -48,6 +49,33 @@ const BODY_METRICS_HEADERS = [
   'FatFreeWeightKg',
   'RawText',
   'OcrConfidence'
+];
+const NUTRITION_LOGS_SHEET_NAME = process.env.NUTRITION_LOGS_SHEET_NAME || 'NutritionLogs';
+const NUTRITION_LOGS_HEADERS = [
+  'CreatedAt',
+  'MessageId',
+  'UserId',
+  'LogDate',
+  'MealName',
+  'SourceType',
+  'DetectedFood',
+  'UserPortionText',
+  'EstimatedKcal',
+  'EstimatedKcalMin',
+  'EstimatedKcalMax',
+  'ProteinG',
+  'ProteinGoalG',
+  'CarbG',
+  'CarbGoalG',
+  'FatG',
+  'FatGoalG',
+  'WeightKg',
+  'WaistInch',
+  'SugarLevel',
+  'SodiumLevel',
+  'Confidence',
+  'Note',
+  'RawText'
 ];
 
 app.get('/', (req, res) => {
@@ -158,6 +186,11 @@ async function handleEvent(event) {
   if (event.message.type === 'text') {
     const text = event.message.text.trim();
 
+    if (pendingFoodPhotos.has(userId) && isCancelText(text)) {
+      pendingFoodPhotos.delete(userId);
+      return replySafe(event.replyToken, 'ยกเลิกการบันทึกอาหารจากรูปล่าสุดแล้วครับ');
+    }
+
     if (text === 'แผนเดือนนี้') {
       return replySafe(event.replyToken, await getCurrentMonthPlans(userId));
     }
@@ -230,11 +263,15 @@ async function handleEvent(event) {
       );
     }
 
-    return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินครับ');
+    if (pendingFoodPhotos.has(userId)) {
+      return handleFoodPortionReply(event, userId, text);
+    }
+
+    return replySafe(event.replyToken, 'กรุณาส่งรูปบิล/สลิป รูปสุขภาพ หรือรูปอาหารครับ');
   }
 
   if (event.message.type !== 'image') {
-    return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินครับ');
+    return replySafe(event.replyToken, 'กรุณาส่งรูปบิล/สลิป รูปสุขภาพ หรือรูปอาหารครับ');
   }
 
   const messageId = event.message.id;
@@ -289,10 +326,79 @@ BMR: ${result.bmrKcal || '-'} kcal`
       );
     }
 
+    if (documentKind === 'nutrition_log') {
+      const result = analysis.nutritionLog || {};
+      await ensureNutritionLogsSheet();
+
+      const isDuplicate = await isDuplicateInNutritionLogsSheet(messageId);
+
+      if (isDuplicate) {
+        return pushSafe(
+          userId,
+          `รายการอาหารนี้เคยถูกบันทึกแล้วครับ
+
+มื้อ: ${result.mealName || '-'}
+แคลอรี่: ${result.mealKcal || result.totalKcal || '-'} kcal`
+        );
+      }
+
+      await appendNutritionLogToGoogleSheet({
+        messageId,
+        userId,
+        sourceType: 'app_screenshot',
+        logDate: result.logDate,
+        mealName: result.mealName,
+        detectedFood: result.foodItems,
+        estimatedKcal: result.mealKcal || result.totalKcal,
+        proteinG: result.proteinG,
+        proteinGoalG: result.proteinGoalG,
+        carbG: result.carbG,
+        carbGoalG: result.carbGoalG,
+        fatG: result.fatG,
+        fatGoalG: result.fatGoalG,
+        weightKg: result.weightKg,
+        waistInch: result.waistInch,
+        confidence: result.confidence,
+        rawText: result.rawText
+      });
+
+      return pushSafe(
+        userId,
+        `บันทึกข้อมูลอาหารจากแอปเรียบร้อยครับ
+
+มื้อ: ${result.mealName || '-'}
+แคลอรี่: ${result.mealKcal || result.totalKcal || '-'} kcal
+โปรตีน: ${result.proteinG || '-'} g
+คาร์บ: ${result.carbG || '-'} g
+ไขมัน: ${result.fatG || '-'} g`
+      );
+    }
+
+    if (documentKind === 'food_photo') {
+      const result = analysis.foodPhoto || {};
+
+      pendingFoodPhotos.set(userId, {
+        messageId,
+        foodPhoto: result,
+        createdAt: Date.now()
+      });
+
+      return pushSafe(
+        userId,
+        `เห็นเป็นอาหารประมาณนี้ครับ:
+${result.detectedFood || '-'}
+
+เพื่อให้คำนวณแม่นขึ้น ช่วยตอบปริมาณแบบนี้ครับ:
+มื้อเที่ยง ข้าว 2 ทัพพี ผัดพริกแกงหมู 1 ทัพพี ไข่ดาว 1 ฟอง
+
+ถ้าไม่ต้องการบันทึก พิมพ์ "ยกเลิก"`
+      );
+    }
+
     if (documentKind === 'unknown') {
       return pushSafe(
         userId,
-        'ขออภัยครับ รูปนี้ไม่ใช่บิล/สลิป หรือรายงานสุขภาพที่ระบบอ่านได้'
+        'ขออภัยครับ รูปนี้ไม่ใช่บิล/สลิป รายงานสุขภาพ หรือรูปอาหารที่ระบบอ่านได้'
       );
     }
 
@@ -393,6 +499,73 @@ async function isDuplicateInBodyMetricsSheet(messageId, userId, data) {
   });
 }
 
+async function handleFoodPortionReply(event, userId, text) {
+  const pending = pendingFoodPhotos.get(userId);
+
+  await replySafe(event.replyToken, 'รับปริมาณอาหารแล้วครับ กำลังคำนวณและบันทึกลงชีต');
+
+  try {
+    const result = await completeFoodPhotoLog(pending.foodPhoto, text);
+    await ensureNutritionLogsSheet();
+
+    const isDuplicate = await isDuplicateInNutritionLogsSheet(pending.messageId);
+
+    if (isDuplicate) {
+      pendingFoodPhotos.delete(userId);
+
+      return pushSafe(
+        userId,
+        `รายการอาหารนี้เคยถูกบันทึกแล้วครับ
+
+มื้อ: ${result.mealName || '-'}
+แคลอรี่: ${result.estimatedKcal || '-'} kcal`
+      );
+    }
+
+    await appendNutritionLogToGoogleSheet({
+      messageId: pending.messageId,
+      userId,
+      sourceType: 'food_photo_with_user_portion',
+      ...result,
+      userPortionText: result.userPortionText || text
+    });
+
+    pendingFoodPhotos.delete(userId);
+
+    return pushSafe(
+      userId,
+      `บันทึกอาหารเรียบร้อยครับ
+
+มื้อ: ${result.mealName || '-'}
+อาหาร: ${result.detectedFood || '-'}
+แคลอรี่: ${result.estimatedKcal || '-'} kcal
+โปรตีน: ${result.proteinG || '-'} g
+คาร์บ: ${result.carbG || '-'} g
+ไขมัน: ${result.fatG || '-'} g
+ความมั่นใจ: ${result.confidence || 'medium'}`
+    );
+  } catch (error) {
+    console.error('Process food portion reply error:', error);
+
+    return pushSafe(
+      userId,
+      'ขออภัยครับ ยังบันทึกอาหารไม่ได้ ลองตอบปริมาณอีกครั้ง เช่น "มื้อเที่ยง ข้าว 2 ทัพพี ผัดพริกแกงหมู 1 ทัพพี ไข่ดาว 1 ฟอง"'
+    );
+  }
+}
+
+async function ensureNutritionLogsSheet() {
+  await ensureSheetWithHeaders(NUTRITION_LOGS_SHEET_NAME, NUTRITION_LOGS_HEADERS);
+}
+
+async function isDuplicateInNutritionLogsSheet(messageId) {
+  const rows = await getSheetRows(NUTRITION_LOGS_SHEET_NAME, 'A:X');
+
+  return rows.slice(1).some((row) => {
+    return messageId && normalizeText(row[1]) === normalizeText(messageId);
+  });
+}
+
 async function appendTransactionToGoogleSheet(data) {
   await appendRows(TRANSACTION_SHEET_NAME, 'A:O', [[
     new Date().toISOString(),
@@ -410,6 +583,35 @@ async function appendTransactionToGoogleSheet(data) {
     data.imageUrl || '',
     data.imageStoredAt || '',
     data.ocrConfidence || data.confidence || ''
+  ]]);
+}
+
+async function appendNutritionLogToGoogleSheet(data) {
+  await appendRows(NUTRITION_LOGS_SHEET_NAME, 'A:X', [[
+    new Date().toISOString(),
+    data.messageId || '',
+    data.userId || '',
+    data.logDate || getBangkokDate(),
+    data.mealName || '',
+    data.sourceType || '',
+    data.detectedFood || '',
+    data.userPortionText || '',
+    toSheetNumber(data.estimatedKcal),
+    toSheetNumber(data.estimatedKcalMin),
+    toSheetNumber(data.estimatedKcalMax),
+    toSheetNumber(data.proteinG),
+    toSheetNumber(data.proteinGoalG),
+    toSheetNumber(data.carbG),
+    toSheetNumber(data.carbGoalG),
+    toSheetNumber(data.fatG),
+    toSheetNumber(data.fatGoalG),
+    toSheetNumber(data.weightKg),
+    toSheetNumber(data.waistInch),
+    data.sugarLevel || '',
+    data.sodiumLevel || '',
+    data.confidence || '',
+    data.note || '',
+    data.rawText || ''
   ]]);
 }
 
@@ -469,15 +671,34 @@ function normalizeDocumentKind(documentKind) {
   const text = String(documentKind || '').trim().toLowerCase().replace(/\s+/g, '_');
 
   if (text === 'body_metrics' || text === 'health' || text === 'health_report') return 'body_metrics';
+  if (text === 'nutrition_log' || text === 'food_log' || text === 'app_screenshot') return 'nutrition_log';
+  if (text === 'food_photo' || text === 'meal_photo' || text === 'food') return 'food_photo';
   if (text === 'transaction' || text === 'bill' || text === 'receipt' || text === 'transfer_slip') return 'transaction';
 
   return 'unknown';
 }
 
+function isCancelText(text) {
+  const normalized = normalizeText(text);
+
+  return ['ยกเลิก', 'cancel', 'ไม่บันทึก'].includes(normalized);
+}
+
 setInterval(() => {
   processedMessages.clear();
+  clearOldPendingFoodPhotos();
   console.log('Processed message cache cleared');
 }, 1000 * 60 * 60);
+
+function clearOldPendingFoodPhotos() {
+  const cutoff = Date.now() - (1000 * 60 * 60 * 6);
+
+  for (const [userId, pending] of pendingFoodPhotos.entries()) {
+    if ((pending.createdAt || 0) < cutoff) {
+      pendingFoodPhotos.delete(userId);
+    }
+  }
+}
 
 const port = process.env.PORT || 3000;
 
