@@ -6,6 +6,16 @@ function getCurrentMonthKey(date = new Date()) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
 }
 
+function getCurrentPlanMonthKey(date = new Date()) {
+  const planMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+
+  if (date.getDate() <= 15) {
+    planMonth.setMonth(planMonth.getMonth() - 1);
+  }
+
+  return getCurrentMonthKey(planMonth);
+}
+
 function getMonthBounds(monthKey = getCurrentMonthKey()) {
   const [year, month] = String(monthKey).split('-').map(Number);
   const start = new Date(Date.UTC(year, month - 1, 1));
@@ -20,5 +30,6 @@ function getMonthBounds(monthKey = getCurrentMonthKey()) {
 
 module.exports = {
   getCurrentMonthKey,
+  getCurrentPlanMonthKey,
   getMonthBounds
 };
