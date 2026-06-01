@@ -1,10 +1,10 @@
 const { query } = require('../db');
-const { getCurrentMonthKey, getMonthBounds } = require('../dates');
+const { getCurrentPlanMonthKey, getMonthBounds } = require('../dates');
 const { resolveUserId } = require('./users');
 
 async function getBudgetPlans({ userId, month } = {}) {
   const resolvedUserId = await resolveUserId(userId);
-  const bounds = getMonthBounds(month || getCurrentMonthKey());
+  const bounds = getMonthBounds(month || getCurrentPlanMonthKey());
 
   if (!resolvedUserId) {
     return {
@@ -21,41 +21,29 @@ async function getBudgetPlans({ userId, month } = {}) {
        bp.plan_amount,
        bp.status,
        COALESCE(c.name, 'Unmapped') AS category_name,
-       COALESCE(SUM(t.amount), 0) AS spent_amount
+       COALESCE(SUM(bpmt.amount) FILTER (WHERE bpmt.status = 'active'), 0) AS paid_amount,
+       COUNT(bpmt.id) FILTER (WHERE bpmt.status = 'active') AS payment_count
      FROM budget_plans bp
      LEFT JOIN categories c
        ON c.id = bp.category_id
-     LEFT JOIN transactions t
-       ON t.user_id = bp.user_id
-      AND t.transaction_date >= $3
-      AND t.transaction_date < $4
-      AND t.status = 'confirmed'
-      AND t.expense_type = 'expense'
-      AND (
-        (bp.category_id IS NOT NULL AND t.category_id = bp.category_id)
-        OR (
-          bp.category_id IS NULL
-          AND lower(
-            COALESCE(t.shop_or_bank_name, '') || ' ' ||
-            COALESCE(t.description, '') || ' ' ||
-            COALESCE(t.raw_text, '')
-          ) LIKE '%' || lower(bp.plan_name) || '%'
-        )
-      )
+     LEFT JOIN budget_payments bpmt
+       ON bpmt.user_id = bp.user_id
+      AND bpmt.plan_month = bp.plan_month
+      AND bpmt.plan_name = bp.plan_name
      WHERE bp.user_id = $1
        AND bp.plan_month = $2
        AND bp.status IN ('active', 'paid')
      GROUP BY bp.id, bp.plan_name, bp.plan_amount, bp.status, c.name
      ORDER BY bp.plan_name`,
-    [resolvedUserId, bounds.monthStart, bounds.monthStart, bounds.nextMonthStart]
+    [resolvedUserId, bounds.monthStart]
   );
 
   const plans = result.rows.map((row) => {
     const planAmount = Number(row.plan_amount || 0);
-    const spentAmount = Number(row.spent_amount || 0);
-    const remainingAmount = planAmount - spentAmount;
+    const paidAmount = Number(row.paid_amount || 0);
+    const remainingAmount = planAmount - paidAmount;
     const progressPercent = planAmount > 0
-      ? Math.min((spentAmount / planAmount) * 100, 999)
+      ? Math.min((paidAmount / planAmount) * 100, 999)
       : 0;
 
     return {
@@ -63,7 +51,9 @@ async function getBudgetPlans({ userId, month } = {}) {
       planName: row.plan_name,
       categoryName: row.category_name,
       planAmount,
-      spentAmount,
+      spentAmount: paidAmount,
+      paidAmount,
+      paymentCount: Number(row.payment_count || 0),
       remainingAmount,
       progressPercent,
       status: remainingAmount <= 0 ? 'over' : row.status
