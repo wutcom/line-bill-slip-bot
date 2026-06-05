@@ -758,6 +758,7 @@ function withEnvelopeConfidence(analysis) {
 
 function buildFoodPhotoDraft(foodPhoto) {
   const fallback = getFoodPhotoFallback(foodPhoto);
+  const detectedFood = normalizeFoodName(foodPhoto.detectedFood || foodPhoto.mealName) || fallback.detectedFood;
   const estimatedKcalMin = toSheetNumber(foodPhoto.estimatedKcalMin) || fallback.estimatedKcalMin;
   const estimatedKcalMax = toSheetNumber(foodPhoto.estimatedKcalMax) || fallback.estimatedKcalMax;
   const proteinGMin = toSheetNumber(foodPhoto.proteinGMin);
@@ -769,8 +770,8 @@ function buildFoodPhotoDraft(foodPhoto) {
 
   return {
     logDate: foodPhoto.logDate || getBangkokDate(),
-    mealName: foodPhoto.mealName || guessMealName(),
-    detectedFood: normalizeFoodName(foodPhoto.detectedFood) || fallback.detectedFood,
+    mealName: normalizeMealName(foodPhoto.mealName) || guessMealName(),
+    detectedFood,
     portionSummary: foodPhoto.portionSummary || fallback.portionSummary,
     estimatedKcal: toSheetNumber(foodPhoto.estimatedKcal) || midpoint(estimatedKcalMin, estimatedKcalMax) || fallback.estimatedKcal,
     estimatedKcalMin,
@@ -885,6 +886,18 @@ function normalizeFoodName(value) {
   }
 
   return text;
+}
+
+function normalizeMealName(value) {
+  const text = String(value || '').trim();
+
+  if (!text) return '';
+  if (/มื้อเช้า|เช้า|breakfast/i.test(text)) return 'มื้อเช้า';
+  if (/มื้อเที่ยง|เที่ยง|กลางวัน|lunch/i.test(text)) return 'มื้อเที่ยง';
+  if (/มื้อเย็น|เย็น|dinner/i.test(text)) return 'มื้อเย็น';
+  if (/ของว่าง|snack/i.test(text)) return 'ของว่าง';
+
+  return '';
 }
 
 function midpoint(min, max) {
