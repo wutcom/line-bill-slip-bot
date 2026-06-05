@@ -14,9 +14,15 @@ DEFAULT_MODEL = "gpt-4o-mini"
 MAX_BODY_BYTES = 15 * 1024 * 1024
 
 
-def load_env_file(path=".env"):
+def load_env_file(path=None):
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+
     if not os.path.exists(path):
-        return
+        fallback_path = ".env"
+        if not os.path.exists(fallback_path):
+            return
+        path = fallback_path
 
     with open(path, "r", encoding="utf-8") as env_file:
         for line in env_file:
@@ -299,6 +305,8 @@ def call_openai_json(messages):
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is required")
+
+    print("Calling OpenAI from Python analysis API", flush=True)
 
     body = {
         "model": os.environ.get("OPENAI_MODEL", DEFAULT_MODEL),
