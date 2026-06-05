@@ -314,6 +314,13 @@ Payload for nutrition from real food photo:
   "rawText": ""
 }}
 
+Thai food photo examples:
+- If the image shows rice with chicken and fried egg, use detectedFood like "ข้าวไก่ผัด/ไก่ราดข้าว + ไข่ดาว" or the closest Thai dish, not English.
+- If the dish is uncertain but contains rice + protein + fried egg, still return a usable Thai estimate instead of blanks.
+- For a typical Thai rice plate with fried egg, use estimatedKcalMin around 650 and estimatedKcalMax around 950 unless visual portion suggests otherwise.
+- Use portionSummary in Thai, for example "ข้าว 1.5-2 ทัพพี, ไก่ 1 ส่วน, ไข่ดาว 1 ฟอง".
+- Never leave estimatedKcal, estimatedKcalMin, estimatedKcalMax, proteinG, carbG, or fatG blank for food_photo. Use a reasonable visual estimate.
+
 Classification rules:
 - transaction: Thai bill, receipt, invoice, bank transfer slip, payment slip.
 - body_metrics: body composition, smart scale, weight, BMI, BMR, body fat, water, muscle, bone, health report screenshot.
@@ -325,6 +332,8 @@ Extraction rules:
 - Use empty string for values that are not visible.
 - Use numeric values without units.
 - For food photos, make a best visual draft and set needsConfirmation=true.
+- For food photos, respond in Thai for mealName, detectedFood, portionSummary, and note.
+- For food photos, always provide estimatedKcalMin/estimatedKcalMax and midpoint estimatedKcal.
 - For app screenshots, extract visible values directly and set needsConfirmation=false.
 - For body metrics, reportDate is only a date printed inside the image; use empty string if no date is visible.
 - For transaction category: food/restaurant/market/coffee=>Food, fuel/gas=>Fuel, taxi/train/parking=>Transport, electricity/water/internet/phone=>Utility, hospital/pharmacy=>Health, bank transfer without clear purpose=>Transfer, shopping/mall/online=>Shopping, unsure=>Other.
