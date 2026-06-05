@@ -10,7 +10,7 @@ const {
   downloadLineImage
 } = require('./services/line.service');
 
-const { analyzeLineImage, completeFoodPhotoLog } = require('./services/openai.service');
+const { analyzeLineImage, completeFoodPhotoLog } = require('./services/analysis-api.service');
 const { getSheetRows, ensureSheetWithHeaders, appendRows } = require('./services/sheets.service');
 const { getTodaySummary, getMonthlySummary } = require('./services/summary.service');
 
@@ -287,11 +287,11 @@ async function handleEvent(event) {
 
   try {
     const imageBuffer = await downloadLineImage(messageId);
-    const analysis = await analyzeLineImage(imageBuffer);
+    const analysis = await analyzeLineImage(imageBuffer, { messageId, userId });
     const documentKind = normalizeDocumentKind(analysis.documentKind);
 
     if (documentKind === 'body_metrics') {
-      const result = analysis.bodyMetrics || {};
+      const result = withEnvelopeConfidence(analysis);
       await ensureBodyMetricsSheet();
 
       const isDuplicate = await isDuplicateInBodyMetricsSheet(messageId, userId, result);
@@ -326,8 +326,25 @@ BMR: ${result.bmrKcal || '-'} kcal`
       );
     }
 
-    if (documentKind === 'nutrition_log') {
-      const result = analysis.nutritionLog || {};
+    if (documentKind === 'nutrition') {
+      const result = withEnvelopeConfidence(analysis);
+
+      if (isFoodPhotoAnalysis(analysis)) {
+        const draft = buildFoodPhotoDraft(result);
+
+        pendingFoodPhotos.set(userId, {
+          messageId,
+          foodPhoto: result,
+          draft,
+          createdAt: Date.now()
+        });
+
+        return pushSafe(
+          userId,
+          formatFoodPhotoDraftMessage(draft)
+        );
+      }
+
       await ensureNutritionLogsSheet();
 
       const isDuplicate = await isDuplicateInNutritionLogsSheet(messageId);
@@ -345,10 +362,10 @@ BMR: ${result.bmrKcal || '-'} kcal`
       await appendNutritionLogToGoogleSheet({
         messageId,
         userId,
-        sourceType: 'app_screenshot',
+        sourceType: analysis.sourceType || 'app_screenshot',
         logDate: result.logDate,
         mealName: result.mealName,
-        detectedFood: result.foodItems,
+        detectedFood: result.detectedFood || result.foodItems,
         estimatedKcal: result.mealKcal || result.totalKcal,
         proteinG: result.proteinG,
         proteinGoalG: result.proteinGoalG,
@@ -374,23 +391,6 @@ BMR: ${result.bmrKcal || '-'} kcal`
       );
     }
 
-    if (documentKind === 'food_photo') {
-      const result = analysis.foodPhoto || {};
-      const draft = buildFoodPhotoDraft(result);
-
-      pendingFoodPhotos.set(userId, {
-        messageId,
-        foodPhoto: result,
-        draft,
-        createdAt: Date.now()
-      });
-
-      return pushSafe(
-        userId,
-        formatFoodPhotoDraftMessage(draft)
-      );
-    }
-
     if (documentKind === 'unknown') {
       return pushSafe(
         userId,
@@ -398,7 +398,7 @@ BMR: ${result.bmrKcal || '-'} kcal`
       );
     }
 
-    const result = analysis.transaction || {};
+    const result = withEnvelopeConfidence(analysis);
 
     const isDuplicate = await isDuplicateInGoogleSheet(messageId, result);
 
@@ -551,7 +551,8 @@ async function handleFoodConfirmationReply(event, userId, text) {
   await replySafe(event.replyToken, 'รับข้อมูลแก้ไขแล้วครับ กำลังคำนวณใหม่และบันทึกลงชีต');
 
   try {
-    const result = await completeFoodPhotoLog(pending.foodPhoto, correctionText);
+    const correctionAnalysis = await completeFoodPhotoLog(pending.foodPhoto, correctionText);
+    const result = withEnvelopeConfidence(correctionAnalysis);
     await ensureNutritionLogsSheet();
 
     const isDuplicate = await isDuplicateInNutritionLogsSheet(pending.messageId);
@@ -571,7 +572,7 @@ async function handleFoodConfirmationReply(event, userId, text) {
     await appendNutritionLogToGoogleSheet({
       messageId: pending.messageId,
       userId,
-      sourceType: 'food_photo_with_user_edit',
+      sourceType: correctionAnalysis.sourceType || 'food_photo_with_user_edit',
       ...result,
       userPortionText: result.userPortionText || correctionText
     });
@@ -706,11 +707,24 @@ function normalizeDocumentKind(documentKind) {
   const text = String(documentKind || '').trim().toLowerCase().replace(/\s+/g, '_');
 
   if (text === 'body_metrics' || text === 'health' || text === 'health_report') return 'body_metrics';
-  if (text === 'nutrition_log' || text === 'food_log' || text === 'app_screenshot') return 'nutrition_log';
-  if (text === 'food_photo' || text === 'meal_photo' || text === 'food') return 'food_photo';
+  if (text === 'nutrition' || text === 'nutrition_log' || text === 'food_log' || text === 'app_screenshot') return 'nutrition';
+  if (text === 'food_photo' || text === 'meal_photo' || text === 'food') return 'nutrition';
   if (text === 'transaction' || text === 'bill' || text === 'receipt' || text === 'transfer_slip') return 'transaction';
 
   return 'unknown';
+}
+
+function isFoodPhotoAnalysis(analysis) {
+  const sourceType = String(analysis.sourceType || analysis.payload?.sourceType || '').trim().toLowerCase();
+
+  return sourceType === 'food_photo' || analysis.payload?.needsConfirmation === true;
+}
+
+function withEnvelopeConfidence(analysis) {
+  return {
+    ...(analysis.payload || {}),
+    confidence: analysis.payload?.confidence || analysis.confidence || ''
+  };
 }
 
 function buildFoodPhotoDraft(foodPhoto) {
