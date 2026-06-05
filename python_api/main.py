@@ -320,6 +320,8 @@ Thai food photo examples:
 - For a typical Thai rice plate with fried egg, use estimatedKcalMin around 650 and estimatedKcalMax around 950 unless visual portion suggests otherwise.
 - Use portionSummary in Thai, for example "ข้าว 1.5-2 ทัพพี, ไก่ 1 ส่วน, ไข่ดาว 1 ฟอง".
 - Never leave estimatedKcal, estimatedKcalMin, estimatedKcalMax, proteinG, carbG, or fatG blank for food_photo. Use a reasonable visual estimate.
+- mealName must be only one of: "มื้อเช้า", "มื้อเที่ยง", "มื้อเย็น", "ของว่าง", or empty string. Do not put the dish name in mealName.
+- Put the dish/menu name in detectedFood only.
 
 Classification rules:
 - transaction: Thai bill, receipt, invoice, bank transfer slip, payment slip.
