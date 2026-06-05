@@ -60,7 +60,13 @@ class AnalysisHandler(BaseHTTPRequestHandler):
         try:
             payload = self.read_json_body()
 
-            if self.path == "/analyze-image":
+            if self.path == "/debug-echo":
+                result = {
+                    "status": "ok",
+                    "service": "python-analysis-api",
+                    "receivedKeys": sorted(payload.keys()),
+                }
+            elif self.path == "/analyze-image":
                 result = analyze_image(payload)
             elif self.path == "/complete-food-photo":
                 result = complete_food_photo(payload)
