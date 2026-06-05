@@ -10,7 +10,7 @@ const {
   downloadLineImage
 } = require('./services/line.service');
 
-const { analyzeLineImage, completeFoodPhotoLog } = require('./services/analysis-api.service');
+const { analyzeLineImage, completeFoodPhotoLog, wakeAnalysisApi } = require('./services/analysis-api.service');
 const { getSheetRows, ensureSheetWithHeaders, appendRows } = require('./services/sheets.service');
 const { getTodaySummary, getMonthlySummary } = require('./services/summary.service');
 
@@ -100,6 +100,8 @@ app.get('/', (req, res) => {
 });
 
 app.get('/help', (req, res) => {
+  wakeAnalysisApiSoon();
+
   const dashboardUrl = process.env.DASHBOARD_URL || 'https://web-dashboard-2mpq.onrender.com';
 
   res.type('html').send(`<!doctype html>
@@ -265,6 +267,8 @@ async function handleEvent(event) {
     }
 
     if (text === 'วิธีใช้') {
+      wakeAnalysisApiSoon();
+
       return replySafe(
         event.replyToken,
         `วิธีใช้งาน
@@ -867,6 +871,14 @@ function clearOldPendingFoodPhotos() {
       pendingFoodPhotos.delete(userId);
     }
   }
+}
+
+function wakeAnalysisApiSoon() {
+  setTimeout(() => {
+    wakeAnalysisApi().catch((error) => {
+      console.error('Background Python analysis API wake failed:', error.message);
+    });
+  }, 0);
 }
 
 const port = process.env.PORT || 3000;
