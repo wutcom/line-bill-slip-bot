@@ -27,6 +27,8 @@ async function postAnalysis(path, body) {
     throw new Error('PYTHON_ANALYSIS_API_URL is required');
   }
 
+  console.log('Calling Python analysis API:', path);
+
   const controller = new AbortController();
   const timeoutMs = Number(process.env.PYTHON_ANALYSIS_API_TIMEOUT_MS || DEFAULT_ANALYSIS_API_TIMEOUT_MS);
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
