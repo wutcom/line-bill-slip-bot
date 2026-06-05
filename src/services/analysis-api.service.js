@@ -20,6 +20,44 @@ async function completeFoodPhotoLog(preliminaryNutrition, userCorrectionText) {
   return normalizeAnalysisEnvelope(response);
 }
 
+async function wakeAnalysisApi() {
+  const baseUrl = (process.env.PYTHON_ANALYSIS_API_URL || '').replace(/\/$/, '');
+
+  if (!baseUrl) {
+    console.log('Python analysis API wake skipped: PYTHON_ANALYSIS_API_URL is not set');
+    return false;
+  }
+
+  const targetUrl = `${baseUrl}/health`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.PYTHON_ANALYSIS_WAKE_TIMEOUT_MS || 10000));
+
+  try {
+    console.log('Waking Python analysis API:', maskUrl(targetUrl));
+
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      signal: controller.signal
+    });
+
+    console.log('Python analysis API wake result:', {
+      target: maskUrl(targetUrl),
+      status: response.status
+    });
+
+    return response.ok;
+  } catch (error) {
+    console.error('Python analysis API wake failed:', {
+      target: maskUrl(targetUrl),
+      message: error.message
+    });
+
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function postAnalysis(path, body) {
   const baseUrl = (process.env.PYTHON_ANALYSIS_API_URL || '').replace(/\/$/, '');
 
@@ -130,5 +168,6 @@ function normalizeDocumentKind(documentKind) {
 
 module.exports = {
   analyzeLineImage,
-  completeFoodPhotoLog
+  completeFoodPhotoLog,
+  wakeAnalysisApi
 };
