@@ -54,7 +54,12 @@ async function postAnalysis(path, body) {
     });
 
     const text = await response.text();
-    const data = parseJsonResponse(text, targetUrl);
+    const responseMeta = {
+      status: response.status,
+      contentType: response.headers.get('content-type') || '',
+      bodySnippet: text.slice(0, 300)
+    };
+    const data = parseJsonResponse(text, targetUrl, responseMeta);
 
     if (!response.ok) {
       throw new Error(data.error || `Python analysis API returned ${response.status} from ${maskUrl(targetUrl)}`);
@@ -74,13 +79,20 @@ async function postAnalysis(path, body) {
   }
 }
 
-function parseJsonResponse(text, targetUrl) {
+function parseJsonResponse(text, targetUrl, responseMeta = {}) {
   if (!text) return {};
 
   try {
     return JSON.parse(text);
   } catch (error) {
-    throw new Error(`Python analysis API returned non-JSON from ${maskUrl(targetUrl)}`);
+    const detail = [
+      `Python analysis API returned non-JSON from ${maskUrl(targetUrl)}`,
+      `status=${responseMeta.status || '-'}`,
+      `contentType=${responseMeta.contentType || '-'}`,
+      `body=${JSON.stringify(responseMeta.bodySnippet || '')}`
+    ].join(' ');
+
+    throw new Error(detail);
   }
 }
 
