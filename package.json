@@ -3,14 +3,17 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node src/index.js",
-    "sync:postgres": "node src/scripts/sync-to-postgres.js"
+    "analysis:python": "python python_api/main.py",
+    "sync:postgres": "node src/scripts/sync-to-postgres.js",
+    "dashboard:dev": "npm --prefix dashboard run dev",
+    "dashboard:build": "npm --prefix dashboard run build",
+    "dashboard:start": "npm --prefix dashboard run start"
   },
   "dependencies": {
     "@line/bot-sdk": "^10.2.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "googleapis": "^144.0.0",
-    "openai": "^4.77.0",
     "pg": "^8.13.1"
   }
 }
