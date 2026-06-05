@@ -757,8 +757,9 @@ function withEnvelopeConfidence(analysis) {
 }
 
 function buildFoodPhotoDraft(foodPhoto) {
-  const estimatedKcalMin = toSheetNumber(foodPhoto.estimatedKcalMin);
-  const estimatedKcalMax = toSheetNumber(foodPhoto.estimatedKcalMax);
+  const fallback = getFoodPhotoFallback(foodPhoto);
+  const estimatedKcalMin = toSheetNumber(foodPhoto.estimatedKcalMin) || fallback.estimatedKcalMin;
+  const estimatedKcalMax = toSheetNumber(foodPhoto.estimatedKcalMax) || fallback.estimatedKcalMax;
   const proteinGMin = toSheetNumber(foodPhoto.proteinGMin);
   const proteinGMax = toSheetNumber(foodPhoto.proteinGMax);
   const carbGMin = toSheetNumber(foodPhoto.carbGMin);
@@ -769,14 +770,14 @@ function buildFoodPhotoDraft(foodPhoto) {
   return {
     logDate: foodPhoto.logDate || getBangkokDate(),
     mealName: foodPhoto.mealName || guessMealName(),
-    detectedFood: foodPhoto.detectedFood || '',
-    portionSummary: foodPhoto.portionSummary || '',
-    estimatedKcal: toSheetNumber(foodPhoto.estimatedKcal) || midpoint(estimatedKcalMin, estimatedKcalMax),
+    detectedFood: normalizeFoodName(foodPhoto.detectedFood) || fallback.detectedFood,
+    portionSummary: foodPhoto.portionSummary || fallback.portionSummary,
+    estimatedKcal: toSheetNumber(foodPhoto.estimatedKcal) || midpoint(estimatedKcalMin, estimatedKcalMax) || fallback.estimatedKcal,
     estimatedKcalMin,
     estimatedKcalMax,
-    proteinG: toSheetNumber(foodPhoto.proteinG) || midpoint(proteinGMin, proteinGMax),
-    carbG: toSheetNumber(foodPhoto.carbG) || midpoint(carbGMin, carbGMax),
-    fatG: toSheetNumber(foodPhoto.fatG) || midpoint(fatGMin, fatGMax),
+    proteinG: toSheetNumber(foodPhoto.proteinG) || midpoint(proteinGMin, proteinGMax) || fallback.proteinG,
+    carbG: toSheetNumber(foodPhoto.carbG) || midpoint(carbGMin, carbGMax) || fallback.carbG,
+    fatG: toSheetNumber(foodPhoto.fatG) || midpoint(fatGMin, fatGMax) || fallback.fatG,
     sugarLevel: foodPhoto.sugarLevel || 'unknown',
     sodiumLevel: foodPhoto.sodiumLevel || 'unknown',
     confidence: foodPhoto.confidence || 'medium',
@@ -819,6 +820,71 @@ function formatFoodSavedMessage(result) {
 function formatRange(min, max, fallback) {
   if (min && max) return `${min}-${max}`;
   return fallback || '-';
+}
+
+function getFoodPhotoFallback(foodPhoto) {
+  const text = [
+    foodPhoto.detectedFood,
+    foodPhoto.portionSummary,
+    foodPhoto.rawObservation,
+    foodPhoto.note
+  ].join(' ').toLowerCase();
+
+  const hasRice = /rice|ข้าว/.test(text);
+  const hasChicken = /chicken|ไก่/.test(text);
+  const hasEgg = /egg|ไข่/.test(text);
+
+  if (hasRice && hasChicken && hasEgg) {
+    return {
+      detectedFood: 'ข้าวไก่ราดข้าว + ไข่ดาว',
+      portionSummary: 'ข้าว 1.5-2 ทัพพี, ไก่ 1 ส่วน, ไข่ดาว 1 ฟอง',
+      estimatedKcalMin: 650,
+      estimatedKcalMax: 950,
+      estimatedKcal: 800,
+      proteinG: 35,
+      carbG: 85,
+      fatG: 35
+    };
+  }
+
+  if (hasRice) {
+    return {
+      detectedFood: 'ข้าวราดกับข้าว',
+      portionSummary: 'ข้าว 1.5-2 ทัพพี, กับข้าว 1 ส่วน',
+      estimatedKcalMin: 550,
+      estimatedKcalMax: 850,
+      estimatedKcal: 700,
+      proteinG: 25,
+      carbG: 80,
+      fatG: 25
+    };
+  }
+
+  return {
+    detectedFood: 'อาหารจากภาพ',
+    portionSummary: 'ประมาณ 1 จาน',
+    estimatedKcalMin: 400,
+    estimatedKcalMax: 800,
+    estimatedKcal: 600,
+    proteinG: 20,
+    carbG: 50,
+    fatG: 25
+  };
+}
+
+function normalizeFoodName(value) {
+  const text = String(value || '').trim();
+  const lower = text.toLowerCase();
+
+  if (/chicken/.test(lower) && /rice/.test(lower) && /egg/.test(lower)) {
+    return 'ข้าวไก่ราดข้าว + ไข่ดาว';
+  }
+
+  if (/chicken/.test(lower) && /rice/.test(lower)) {
+    return 'ข้าวไก่ราดข้าว';
+  }
+
+  return text;
 }
 
 function midpoint(min, max) {
