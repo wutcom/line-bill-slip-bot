@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 API_VERSION = "1.0"
 DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 MAX_BODY_BYTES = 15 * 1024 * 1024
 
 
@@ -149,6 +150,7 @@ def analyze_image(request):
     ]
 
     data = call_openai_json(messages)
+    log_openai_result("analyze-image", data)
     return normalize_envelope(data)
 
 
@@ -211,6 +213,7 @@ Rules:
     ]
 
     data = call_openai_json(messages)
+    log_openai_result("complete-food-photo", data)
     envelope = normalize_envelope(data)
     envelope["documentKind"] = "nutrition"
     envelope["sourceType"] = "food_photo_with_user_edit"
@@ -323,16 +326,23 @@ def call_openai_json(messages):
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is required")
 
-    print("Calling OpenAI from Python analysis API", flush=True)
+    base_url = os.environ.get("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL).rstrip("/")
+    request_url = f"{base_url}/chat/completions"
+    model = os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
+
+    print(
+        f"Calling OpenAI-compatible API from Python analysis API: baseUrl={base_url} model={model}",
+        flush=True,
+    )
 
     body = {
-        "model": os.environ.get("OPENAI_MODEL", DEFAULT_MODEL),
+        "model": model,
         "response_format": {"type": "json_object"},
         "messages": messages,
     }
 
     request = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        request_url,
         data=json.dumps(body).encode("utf-8"),
         headers={
             "authorization": f"Bearer {api_key}",
@@ -350,6 +360,29 @@ def call_openai_json(messages):
 
     content = response_body["choices"][0]["message"]["content"]
     return json.loads(content)
+
+
+def log_openai_result(context, data):
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    summary = {
+        "context": context,
+        "documentKind": data.get("documentKind"),
+        "sourceType": data.get("sourceType") or payload.get("sourceType"),
+        "confidence": data.get("confidence") or payload.get("confidence"),
+        "payloadKeys": sorted(payload.keys()),
+        "payloadPreview": truncate_text(json.dumps(payload, ensure_ascii=False, default=str), 1200),
+    }
+
+    print(f"OpenAI result summary: {json.dumps(summary, ensure_ascii=False)}", flush=True)
+
+
+def truncate_text(value, max_length):
+    text = str(value or "")
+
+    if len(text) <= max_length:
+        return text
+
+    return text[:max_length] + "...[truncated]"
 
 
 def normalize_envelope(data):
