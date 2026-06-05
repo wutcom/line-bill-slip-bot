@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 API_VERSION = "1.0"
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_OPENAI_TIMEOUT_SECONDS = 45
 MAX_BODY_BYTES = 15 * 1024 * 1024
 
 
@@ -59,6 +60,11 @@ class AnalysisHandler(BaseHTTPRequestHandler):
             return self.write_json(401, {"error": "unauthorized"})
 
         try:
+            started_at = time.time()
+            print(
+                f"Python API request start: path={self.path} contentLength={self.headers.get('content-length', '0')}",
+                flush=True,
+            )
             payload = self.read_json_body()
 
             if self.path == "/debug-echo":
@@ -74,12 +80,16 @@ class AnalysisHandler(BaseHTTPRequestHandler):
             else:
                 return self.write_json(404, {"error": "not found"})
 
+            print(
+                f"Python API request success: path={self.path} elapsedMs={int((time.time() - started_at) * 1000)}",
+                flush=True,
+            )
             return self.write_json(200, result)
         except ValueError as exc:
             return self.write_json(400, {"error": str(exc)})
         except Exception as exc:
             print(f"Request failed: {exc}", file=sys.stderr)
-            return self.write_json(500, {"error": "analysis failed"})
+            return self.write_json(500, {"error": "analysis failed", "detail": truncate_text(str(exc), 500)})
 
     def is_authorized(self):
         api_key = os.environ.get("PYTHON_ANALYSIS_API_KEY", "").strip()
@@ -352,7 +362,10 @@ def call_openai_json(messages):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=int(os.environ.get("OPENAI_TIMEOUT_SECONDS", "60"))) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=int(os.environ.get("OPENAI_TIMEOUT_SECONDS", str(DEFAULT_OPENAI_TIMEOUT_SECONDS))),
+        ) as response:
             response_body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
