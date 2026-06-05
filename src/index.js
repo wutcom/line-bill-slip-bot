@@ -31,6 +31,23 @@ const processedMessages = new Set();
 const pendingFoodPhotos = new Map();
 
 const TRANSACTION_SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
+const TRANSACTION_HEADERS = [
+  'CreatedAt',
+  'MessageId',
+  'UserId',
+  'DocumentType',
+  'ShopOrBankName',
+  'Amount',
+  'TransactionDate',
+  'ReferenceNo',
+  'Category',
+  'Description',
+  'RawText',
+  'ImageFileId',
+  'ImageUrl',
+  'ImageStoredAt',
+  'OcrConfidence'
+];
 const BODY_METRICS_SHEET_NAME = process.env.BODY_METRICS_SHEET_NAME || 'BodyMetrics';
 const BODY_METRICS_HEADERS = [
   'CreatedAt',
@@ -443,6 +460,8 @@ BMR: ${result.bmrKcal || '-'} kcal`
 }
 
 async function isDuplicateInGoogleSheet(messageId, data) {
+  await ensureTransactionSheet();
+
   const rows = await getSheetRows(TRANSACTION_SHEET_NAME, 'A:K');
 
   const referenceNo = normalizeText(data.referenceNo);
@@ -461,6 +480,10 @@ async function isDuplicateInGoogleSheet(messageId, data) {
 
     return false;
   });
+}
+
+async function ensureTransactionSheet() {
+  await ensureSheetWithHeaders(TRANSACTION_SHEET_NAME, TRANSACTION_HEADERS);
 }
 
 async function ensureBodyMetricsSheet() {
@@ -603,6 +626,8 @@ async function isDuplicateInNutritionLogsSheet(messageId) {
 }
 
 async function appendTransactionToGoogleSheet(data) {
+  await ensureTransactionSheet();
+
   await appendRows(TRANSACTION_SHEET_NAME, 'A:O', [[
     new Date().toISOString(),
     data.messageId || '',
