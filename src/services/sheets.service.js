@@ -29,14 +29,12 @@ async function getSheetRows(sheetName, range = 'A:K') {
 }
 
 async function appendRows(sheetName, range, values) {
-  const sheets = getSheetsClient();
+  const { startColumn, endColumn } = parseColumnRange(range);
+  const existingRows = await getSheetRows(sheetName, `${startColumn}:${endColumn}`);
+  const nextRow = findNextRow(existingRows);
+  const targetRange = `${startColumn}${nextRow}:${endColumn}${nextRow + values.length - 1}`;
 
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${sheetName}!${range}`,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values }
-  });
+  await updateRows(sheetName, targetRange, values);
 }
 
 async function ensureSheetWithHeaders(sheetName, headers) {
@@ -100,6 +98,34 @@ function toColumnName(columnCount) {
   }
 
   return name;
+}
+
+function parseColumnRange(range) {
+  const match = String(range || '').match(/^([A-Z]+)(?::([A-Z]+))?$/i);
+
+  if (!match) {
+    throw new Error(`Unsupported append range: ${range}`);
+  }
+
+  const startColumn = match[1].toUpperCase();
+  const endColumn = (match[2] || match[1]).toUpperCase();
+
+  return {
+    startColumn,
+    endColumn
+  };
+}
+
+function findNextRow(rows) {
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const hasValue = (rows[index] || []).some((cell) => String(cell || '').trim() !== '');
+
+    if (hasValue) {
+      return index + 2;
+    }
+  }
+
+  return 1;
 }
 
 module.exports = {

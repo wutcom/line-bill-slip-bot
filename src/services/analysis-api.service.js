@@ -27,7 +27,11 @@ async function postAnalysis(path, body) {
     throw new Error('PYTHON_ANALYSIS_API_URL is required');
   }
 
-  console.log('Calling Python analysis API:', path);
+  const targetUrl = `${baseUrl}${path}`;
+  console.log('Calling Python analysis API:', {
+    path,
+    target: maskUrl(targetUrl)
+  });
 
   const controller = new AbortController();
   const timeoutMs = Number(process.env.PYTHON_ANALYSIS_API_TIMEOUT_MS || DEFAULT_ANALYSIS_API_TIMEOUT_MS);
@@ -42,7 +46,7 @@ async function postAnalysis(path, body) {
       headers['x-api-key'] = process.env.PYTHON_ANALYSIS_API_KEY;
     }
 
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(targetUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -50,15 +54,42 @@ async function postAnalysis(path, body) {
     });
 
     const text = await response.text();
-    const data = text ? JSON.parse(text) : {};
+    const data = parseJsonResponse(text, targetUrl);
 
     if (!response.ok) {
-      throw new Error(data.error || `Python analysis API returned ${response.status}`);
+      throw new Error(data.error || `Python analysis API returned ${response.status} from ${maskUrl(targetUrl)}`);
     }
 
     return data;
+  } catch (error) {
+    console.error('Python analysis API call failed:', {
+      path,
+      target: maskUrl(targetUrl),
+      message: error.message
+    });
+
+    throw error;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function parseJsonResponse(text, targetUrl) {
+  if (!text) return {};
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Python analysis API returned non-JSON from ${maskUrl(targetUrl)}`);
+  }
+}
+
+function maskUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return url;
   }
 }
 
