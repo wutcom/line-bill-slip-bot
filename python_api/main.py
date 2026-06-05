@@ -41,8 +41,14 @@ def load_env_file(path=None):
 class AnalysisHandler(BaseHTTPRequestHandler):
     server_version = "LineAnalysisPythonAPI/1.0"
 
+    def do_HEAD(self):
+        if self.path in ("/", "/health"):
+            return self.write_empty(200)
+
+        return self.write_empty(404)
+
     def do_GET(self):
-        if self.path == "/health":
+        if self.path in ("/", "/health"):
             return self.write_json(200, {"status": "ok", "service": "python-analysis-api"})
 
         return self.write_json(404, {"error": "not found"})
@@ -95,6 +101,11 @@ class AnalysisHandler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def write_empty(self, status):
+        self.send_response(status)
+        self.send_header("content-length", "0")
+        self.end_headers()
 
     def log_message(self, fmt, *args):
         print(f"{self.log_date_time_string()} {fmt % args}", file=sys.stderr)
