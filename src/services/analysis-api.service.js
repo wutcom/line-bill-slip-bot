@@ -9,12 +9,13 @@ const DEFAULT_FOOD_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_IMAGE_MAX_WIDTH = 1280;
 const DEFAULT_IMAGE_MAX_HEIGHT = 1280;
 const DEFAULT_IMAGE_JPEG_QUALITY = 78;
+const DEFAULT_ANALYSIS_PROVIDER = 'default';
 
 async function analyzeLineImage(imageBuffer, metadata = {}) {
   const optimizedImage = await optimizeImageForAi(imageBuffer, metadata);
   const imageBase64 = optimizedImage.buffer.toString('base64');
   const mimeType = optimizedImage.mimeType;
-  const imageRoute = await classifyImageRoute(imageBase64, mimeType);
+  const providerRoute = getAnalysisProviderRoute();
   const messages = [
     {
       role: 'system',
@@ -37,7 +38,7 @@ async function analyzeLineImage(imageBuffer, metadata = {}) {
     }
   ];
 
-  const data = await callOpenAIJson(messages, 'analyze-image', getProviderOptions(imageRoute));
+  const data = await callOpenAIJson(messages, 'analyze-image', getProviderOptions(providerRoute));
   return normalizeAnalysisEnvelope(data);
 }
 
@@ -161,58 +162,6 @@ async function wakeAnalysisApi() {
   return true;
 }
 
-async function classifyImageRoute(imageBase64, mimeType) {
-  const messages = [
-    {
-      role: 'system',
-      content: 'Classify a LINE image for routing. Return valid JSON only.'
-    },
-    {
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: `Return JSON only:
-{
-  "route": "food or default",
-  "reason": ""
-}
-
-Rules:
-- route="food" for real food photos, cooked meals, plates, snacks, drinks, or food tracking app screenshots.
-- route="default" for bills, receipts, transfer slips, body composition screenshots, health screenshots, and anything else.`
-        },
-        {
-          type: 'image_url',
-          image_url: {
-            url: `data:${mimeType};base64,${imageBase64}`
-          }
-        }
-      ]
-    }
-  ];
-
-  try {
-    const result = await callOpenAIJson(messages, 'classify-image-route', getProviderOptions('food'));
-    const route = String(result?.route || '').trim().toLowerCase();
-
-    if (route === 'food') {
-      console.log('Image analysis provider route:', {
-        route: 'food',
-        reason: result?.reason || ''
-      });
-      return 'food';
-    }
-  } catch (error) {
-    console.warn('Food route classification failed, using default provider:', {
-      message: error.message
-    });
-  }
-
-  console.log('Image analysis provider route:', { route: 'default' });
-  return 'default';
-}
-
 async function callOpenAIJson(messages, context, providerOptions = {}) {
   const apiKey = String(providerOptions.apiKey || '').trim();
 
@@ -272,6 +221,18 @@ async function callOpenAIJson(messages, context, providerOptions = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function getAnalysisProviderRoute() {
+  const route = String(process.env.AI_ANALYSIS_PROVIDER || DEFAULT_ANALYSIS_PROVIDER).trim().toLowerCase();
+
+  if (route === 'food' || route === 'food-openai' || route === 'openai') {
+    console.log('Image analysis provider route:', { route: 'food' });
+    return 'food';
+  }
+
+  console.log('Image analysis provider route:', { route: 'default' });
+  return 'default';
 }
 
 function getProviderOptions(route) {
