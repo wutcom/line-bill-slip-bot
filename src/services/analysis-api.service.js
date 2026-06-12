@@ -1,146 +1,19 @@
-const DEFAULT_ANALYSIS_API_TIMEOUT_MS = 60000;
+const OpenAI = require('openai');
 
-async function analyzeLineImage(imageBuffer, metadata = {}) {
-  const response = await postAnalysis('/analyze-image', {
-    imageBase64: imageBuffer.toString('base64'),
-    mimeType: metadata.mimeType || 'image/jpeg',
-    messageId: metadata.messageId || '',
-    userId: metadata.userId || ''
-  });
+const DEFAULT_MODEL = 'gpt-4o-mini';
+const DEFAULT_TIMEOUT_SECONDS = 45;
 
-  return normalizeAnalysisEnvelope(response);
-}
+let openaiClient = null;
 
-async function completeFoodPhotoLog(preliminaryNutrition, userCorrectionText) {
-  const response = await postAnalysis('/complete-food-photo', {
-    preliminaryNutrition,
-    userCorrectionText
-  });
-
-  return normalizeAnalysisEnvelope(response);
-}
-
-async function wakeAnalysisApi() {
-  const baseUrl = (process.env.PYTHON_ANALYSIS_API_URL || '').replace(/\/$/, '');
-
-  if (!baseUrl) {
-    console.log('Python analysis API wake skipped: PYTHON_ANALYSIS_API_URL is not set');
-    return false;
-  }
-
-  const targetUrl = `${baseUrl}/health`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(process.env.PYTHON_ANALYSIS_WAKE_TIMEOUT_MS || 10000));
-
-  try {
-    console.log('Waking Python analysis API:', maskUrl(targetUrl));
-
-    const response = await fetch(targetUrl, {
-      method: 'GET',
-      signal: controller.signal
+function getOpenAIClient() {
+  if (!openaiClient) {
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+      timeout: Number(process.env.OPENAI_TIMEOUT_SECONDS || DEFAULT_TIMEOUT_SECONDS) * 1000,
     });
-
-    console.log('Python analysis API wake result:', {
-      target: maskUrl(targetUrl),
-      status: response.status
-    });
-
-    return response.ok;
-  } catch (error) {
-    console.error('Python analysis API wake failed:', {
-      target: maskUrl(targetUrl),
-      message: error.message
-    });
-
-    return false;
-  } finally {
-    clearTimeout(timeout);
   }
-}
-
-async function postAnalysis(path, body) {
-  const baseUrl = (process.env.PYTHON_ANALYSIS_API_URL || '').replace(/\/$/, '');
-
-  if (!baseUrl) {
-    throw new Error('PYTHON_ANALYSIS_API_URL is required');
-  }
-
-  const targetUrl = `${baseUrl}${path}`;
-  console.log('Calling Python analysis API:', {
-    path,
-    target: maskUrl(targetUrl)
-  });
-
-  const controller = new AbortController();
-  const timeoutMs = Number(process.env.PYTHON_ANALYSIS_API_TIMEOUT_MS || DEFAULT_ANALYSIS_API_TIMEOUT_MS);
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const headers = {
-      'content-type': 'application/json'
-    };
-
-    if (process.env.PYTHON_ANALYSIS_API_KEY) {
-      headers['x-api-key'] = process.env.PYTHON_ANALYSIS_API_KEY;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
-
-    const text = await response.text();
-    const responseMeta = {
-      status: response.status,
-      contentType: response.headers.get('content-type') || '',
-      bodySnippet: text.slice(0, 300)
-    };
-    const data = parseJsonResponse(text, targetUrl, responseMeta);
-
-    if (!response.ok) {
-      throw new Error(data.error || `Python analysis API returned ${response.status} from ${maskUrl(targetUrl)}`);
-    }
-
-    return data;
-  } catch (error) {
-    console.error('Python analysis API call failed:', {
-      path,
-      target: maskUrl(targetUrl),
-      message: error.message
-    });
-
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function parseJsonResponse(text, targetUrl, responseMeta = {}) {
-  if (!text) return {};
-
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    const detail = [
-      `Python analysis API returned non-JSON from ${maskUrl(targetUrl)}`,
-      `status=${responseMeta.status || '-'}`,
-      `contentType=${responseMeta.contentType || '-'}`,
-      `body=${JSON.stringify(responseMeta.bodySnippet || '')}`
-    ].join(' ');
-
-    throw new Error(detail);
-  }
-}
-
-function maskUrl(url) {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch {
-    return url;
-  }
+  return openaiClient;
 }
 
 function normalizeAnalysisEnvelope(envelope) {
