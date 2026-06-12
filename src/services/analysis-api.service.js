@@ -1,11 +1,20 @@
+const sharp = require('sharp');
+
 const API_VERSION = '1.0';
 const DEFAULT_MODEL = 'gpt-4o-mini';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_TIMEOUT_SECONDS = 45;
+const DEFAULT_FOOD_MODEL = 'gpt-4o-mini';
+const DEFAULT_FOOD_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_IMAGE_MAX_WIDTH = 1280;
+const DEFAULT_IMAGE_MAX_HEIGHT = 1280;
+const DEFAULT_IMAGE_JPEG_QUALITY = 78;
 
 async function analyzeLineImage(imageBuffer, metadata = {}) {
-  const imageBase64 = imageBuffer.toString('base64');
-  const mimeType = metadata.mimeType || 'image/jpeg';
+  const optimizedImage = await optimizeImageForAi(imageBuffer, metadata);
+  const imageBase64 = optimizedImage.buffer.toString('base64');
+  const mimeType = optimizedImage.mimeType;
+  const imageRoute = await classifyImageRoute(imageBase64, mimeType);
   const messages = [
     {
       role: 'system',
@@ -28,8 +37,55 @@ async function analyzeLineImage(imageBuffer, metadata = {}) {
     }
   ];
 
-  const data = await callOpenAIJson(messages, 'analyze-image');
+  const data = await callOpenAIJson(messages, 'analyze-image', getProviderOptions(imageRoute));
   return normalizeAnalysisEnvelope(data);
+}
+
+async function optimizeImageForAi(imageBuffer, metadata = {}) {
+  const originalBytes = imageBuffer.length;
+  const maxWidth = Number(process.env.AI_IMAGE_MAX_WIDTH || DEFAULT_IMAGE_MAX_WIDTH);
+  const maxHeight = Number(process.env.AI_IMAGE_MAX_HEIGHT || DEFAULT_IMAGE_MAX_HEIGHT);
+  const quality = Number(process.env.AI_IMAGE_JPEG_QUALITY || DEFAULT_IMAGE_JPEG_QUALITY);
+
+  try {
+    const pipeline = sharp(imageBuffer, { failOn: 'none' })
+      .rotate()
+      .resize({
+        width: maxWidth,
+        height: maxHeight,
+        fit: 'inside',
+        withoutEnlargement: true
+      })
+      .jpeg({
+        quality,
+        mozjpeg: true
+      });
+    const buffer = await pipeline.toBuffer();
+
+    console.log('AI image optimized:', {
+      originalBytes,
+      optimizedBytes: buffer.length,
+      ratio: originalBytes ? Number((buffer.length / originalBytes).toFixed(2)) : null,
+      maxWidth,
+      maxHeight,
+      quality
+    });
+
+    return {
+      buffer,
+      mimeType: 'image/jpeg'
+    };
+  } catch (error) {
+    console.warn('AI image optimization failed, using original image:', {
+      message: error.message,
+      originalBytes
+    });
+
+    return {
+      buffer: imageBuffer,
+      mimeType: metadata.mimeType || 'image/jpeg'
+    };
+  }
 }
 
 async function completeFoodPhotoLog(preliminaryNutrition, userCorrectionText) {
@@ -89,7 +145,7 @@ Rules:
     }
   ];
 
-  const data = await callOpenAIJson(messages, 'complete-food-photo');
+  const data = await callOpenAIJson(messages, 'complete-food-photo', getProviderOptions('food'));
   const envelope = normalizeAnalysisEnvelope(data);
   envelope.documentKind = 'nutrition';
   envelope.sourceType = 'food_photo_with_user_edit';
@@ -105,16 +161,68 @@ async function wakeAnalysisApi() {
   return true;
 }
 
-async function callOpenAIJson(messages, context) {
-  const apiKey = String(process.env.OPENAI_API_KEY || '').trim();
+async function classifyImageRoute(imageBase64, mimeType) {
+  const messages = [
+    {
+      role: 'system',
+      content: 'Classify a LINE image for routing. Return valid JSON only.'
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: `Return JSON only:
+{
+  "route": "food or default",
+  "reason": ""
+}
 
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is required for image analysis');
+Rules:
+- route="food" for real food photos, cooked meals, plates, snacks, drinks, or food tracking app screenshots.
+- route="default" for bills, receipts, transfer slips, body composition screenshots, health screenshots, and anything else.`
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: `data:${mimeType};base64,${imageBase64}`
+          }
+        }
+      ]
+    }
+  ];
+
+  try {
+    const result = await callOpenAIJson(messages, 'classify-image-route', getProviderOptions('food'));
+    const route = String(result?.route || '').trim().toLowerCase();
+
+    if (route === 'food') {
+      console.log('Image analysis provider route:', {
+        route: 'food',
+        reason: result?.reason || ''
+      });
+      return 'food';
+    }
+  } catch (error) {
+    console.warn('Food route classification failed, using default provider:', {
+      message: error.message
+    });
   }
 
-  const baseUrl = String(process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL).trim().replace(/\/$/, '');
-  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
-  const timeoutSeconds = Number(process.env.OPENAI_TIMEOUT_SECONDS || DEFAULT_OPENAI_TIMEOUT_SECONDS);
+  console.log('Image analysis provider route:', { route: 'default' });
+  return 'default';
+}
+
+async function callOpenAIJson(messages, context, providerOptions = {}) {
+  const apiKey = String(providerOptions.apiKey || '').trim();
+
+  if (!apiKey) {
+    throw new Error(`${providerOptions.apiKeyName || 'OPENAI_API_KEY'} is required for image analysis`);
+  }
+
+  const baseUrl = String(providerOptions.baseUrl || DEFAULT_OPENAI_BASE_URL).trim().replace(/\/$/, '');
+  const model = providerOptions.model || DEFAULT_MODEL;
+  const timeoutSeconds = Number(providerOptions.timeoutSeconds || DEFAULT_OPENAI_TIMEOUT_SECONDS);
   const targetUrl = `${baseUrl}/chat/completions`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
@@ -127,6 +235,7 @@ async function callOpenAIJson(messages, context) {
   try {
     console.log('Calling OpenAI-compatible API from Node:', {
       context,
+      provider: providerOptions.name || 'default',
       baseUrl: maskUrl(baseUrl),
       model
     });
@@ -155,6 +264,7 @@ async function callOpenAIJson(messages, context) {
   } catch (error) {
     console.error('OpenAI-compatible API call failed:', {
       context,
+      provider: providerOptions.name || 'default',
       target: maskUrl(targetUrl),
       message: error.message
     });
@@ -162,6 +272,36 @@ async function callOpenAIJson(messages, context) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function getProviderOptions(route) {
+  if (route === 'food') {
+    const foodBaseUrl = process.env.OPENAI_FOOD_BASE_URL || DEFAULT_FOOD_OPENAI_BASE_URL;
+    const canReuseDefaultApiKey = normalizeBaseUrl(process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL) === normalizeBaseUrl(foodBaseUrl);
+    const apiKey = process.env.OPENAI_FOOD_API_KEY || (canReuseDefaultApiKey ? process.env.OPENAI_API_KEY : '');
+
+    return {
+      name: 'food-openai',
+      apiKeyName: canReuseDefaultApiKey ? 'OPENAI_FOOD_API_KEY or OPENAI_API_KEY' : 'OPENAI_FOOD_API_KEY',
+      apiKey,
+      baseUrl: foodBaseUrl,
+      model: process.env.OPENAI_FOOD_MODEL || DEFAULT_FOOD_MODEL,
+      timeoutSeconds: process.env.OPENAI_FOOD_TIMEOUT_SECONDS || process.env.OPENAI_TIMEOUT_SECONDS || DEFAULT_OPENAI_TIMEOUT_SECONDS
+    };
+  }
+
+  return {
+    name: 'default',
+    apiKeyName: 'OPENAI_API_KEY',
+    apiKey: process.env.OPENAI_API_KEY,
+    baseUrl: process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL,
+    model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+    timeoutSeconds: process.env.OPENAI_TIMEOUT_SECONDS || DEFAULT_OPENAI_TIMEOUT_SECONDS
+  };
+}
+
+function normalizeBaseUrl(value) {
+  return String(value || '').trim().replace(/\/$/, '').toLowerCase();
 }
 
 function parseJson(value, targetUrl) {
