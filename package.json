@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node src/index.js",
-    "analysis:python": "python python_api/main.py",
     "sync:postgres": "node src/scripts/sync-to-postgres.js",
     "dashboard:dev": "npm --prefix dashboard run dev",
     "dashboard:build": "npm --prefix dashboard run build",
