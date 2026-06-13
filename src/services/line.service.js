@@ -27,6 +27,20 @@ async function pushSafe(userId, text) {
   }
 }
 
+async function pushImage(userId, imageUrl) {
+  if (!userId || !imageUrl) return;
+
+  try {
+    await lineClient.pushMessage(userId, {
+      type: 'image',
+      originalContentUrl: imageUrl,
+      previewImageUrl: imageUrl
+    });
+  } catch (e) {
+    console.error('Push image error:', e.originalError?.response?.data || e.message);
+  }
+}
+
 async function downloadLineImage(messageId) {
   const stream = await lineClient.getMessageContent(messageId);
   const chunks = [];
@@ -44,5 +58,6 @@ module.exports = {
   lineClient,
   replySafe,
   pushSafe,
+  pushImage,
   downloadLineImage
 };
