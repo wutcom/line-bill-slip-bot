@@ -7,12 +7,14 @@ const {
   lineConfig,
   replySafe,
   pushSafe,
+  pushImage,
   downloadLineImage
 } = require('./services/line.service');
 
 const { analyzeLineImage, completeFoodPhotoLog, wakeAnalysisApi } = require('./services/analysis-api.service');
 const { getSheetRows, ensureSheetWithHeaders, appendRows } = require('./services/sheets.service');
 const { getTodaySummary, getMonthlySummary } = require('./services/summary.service');
+const { getBodyMetricsReport } = require('./services/body-metrics.service');
 
 const {
   addBudgetPlan,
@@ -172,6 +174,13 @@ app.get('/help', (req, res) => {
       <li><code>เดือนนี้</code> ดูยอดรวมของเดือนนี้</li>
       <li><code>ดูคงเหลือ</code> ดูแผนที่ยังเหลือ</li>
     </ul>
+
+    <h2>สุขภาพ</h2>
+    <ul>
+      <li>ส่งรูปรายงานน้ำหนัก/ไขมัน เพื่อบันทึกข้อมูลสุขภาพ</li>
+      <li><code>กราฟสุขภาพ</code> ดูกราฟแนวโน้มน้ำหนัก ไขมัน กล้ามเนื้อย้อนหลัง</li>
+      <li><code>กราฟสุขภาพ 30 วัน</code> กำหนดช่วงวันย้อนหลังเองได้</li>
+    </ul>
     <a class="dashboard-link" href="${dashboardUrl}" target="_blank" rel="noopener noreferrer">เปิด Dashboard</a>
 
     <h2>จัดการแผนรายเดือน</h2>
@@ -266,6 +275,10 @@ async function handleEvent(event) {
       return replySafe(event.replyToken, await getMonthlySummary(userId));
     }
 
+    if (text === 'กราฟสุขภาพ' || text.startsWith('กราฟสุขภาพ ') || text === 'กราฟน้ำหนัก' || text.startsWith('กราฟน้ำหนัก ')) {
+      return handleBodyMetricsChart(event, userId, text);
+    }
+
     if (text === 'วิธีใช้') {
       wakeAnalysisApiSoon();
 
@@ -280,7 +293,8 @@ async function handleEvent(event) {
 5. พิมพ์ "จ่ายแล้ว UOB 5000" เพื่อบันทึกการจ่ายรายครั้ง
 6. พิมพ์ "ประวัติจ่าย UOB" เพื่อดูรายการจ่ายของแผน
 7. พิมพ์ "ลบจ่าย PaymentId" หากบันทึกผิด
-8. กด "ดูคงเหลือ" เพื่อดูยอดแผนคงเหลือ`
+8. กด "ดูคงเหลือ" เพื่อดูยอดแผนคงเหลือ
+9. พิมพ์ "กราฟสุขภาพ" หรือ "กราฟสุขภาพ 30 วัน" เพื่อดูแนวโน้มน้ำหนัก/ไขมัน/กล้ามเนื้อย้อนหลัง`
       );
     }
 
@@ -613,6 +627,27 @@ async function handleFoodConfirmationReply(event, userId, text) {
     return pushSafe(
       userId,
       'ขออภัยครับ ยังบันทึกอาหารไม่ได้ ลองพิมพ์ "ยืนยัน" หรือ "แก้ มื้อเที่ยง ข้าว 2 ทัพพี ผัดพริกแกงหมู 1 ทัพพี ไข่ดาว 1 ฟอง"'
+    );
+  }
+}
+
+async function handleBodyMetricsChart(event, userId, text) {
+  try {
+    await ensureBodyMetricsSheet();
+
+    const report = await getBodyMetricsReport(userId, text);
+
+    await replySafe(event.replyToken, report.text);
+
+    if (report.chartUrl) {
+      await pushImage(userId, report.chartUrl);
+    }
+  } catch (error) {
+    console.error('Body metrics chart error:', error);
+
+    return replySafe(
+      event.replyToken,
+      'ขออภัยครับ ดึงกราฟสุขภาพย้อนหลังไม่ได้ กรุณาลองใหม่อีกครั้ง'
     );
   }
 }
