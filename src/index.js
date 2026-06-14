@@ -6,8 +6,8 @@ const {
   line,
   lineConfig,
   replySafe,
+  replyMessagesSafe,
   pushSafe,
-  pushImage,
   downloadLineImage
 } = require('./services/line.service');
 
@@ -637,11 +637,18 @@ async function handleBodyMetricsChart(event, userId, text) {
 
     const report = await getBodyMetricsReport(userId, text);
 
-    await replySafe(event.replyToken, report.text);
-
     if (report.chartUrl) {
-      await pushImage(userId, report.chartUrl);
+      return replyMessagesSafe(event.replyToken, [
+        { type: 'text', text: report.text },
+        {
+          type: 'image',
+          originalContentUrl: report.chartUrl,
+          previewImageUrl: report.chartUrl
+        }
+      ]);
     }
+
+    return replySafe(event.replyToken, report.text);
   } catch (error) {
     console.error('Body metrics chart error:', error);
 
