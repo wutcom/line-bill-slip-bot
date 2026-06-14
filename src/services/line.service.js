@@ -17,6 +17,16 @@ async function replySafe(replyToken, text) {
   }
 }
 
+async function replyMessagesSafe(replyToken, messages) {
+  if (!replyToken || !Array.isArray(messages) || messages.length === 0) return;
+
+  try {
+    await lineClient.replyMessage(replyToken, messages);
+  } catch (e) {
+    console.error('Reply messages error:', e.originalError?.response?.data || e.message);
+  }
+}
+
 async function pushSafe(userId, text) {
   if (!userId) return;
 
@@ -57,6 +67,7 @@ module.exports = {
   lineConfig,
   lineClient,
   replySafe,
+  replyMessagesSafe,
   pushSafe,
   pushImage,
   downloadLineImage
