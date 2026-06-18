@@ -30,8 +30,8 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
       {/* Mobile Top Header */}
       <header className="mobile-top-header">
         <div className="mobile-brand">
-          <span className="mobile-brand-icon">💰</span>
-          <h1>Expense Tracker</h1>
+          <span className="mobile-brand-icon">🌱</span>
+          <h1>MindLife</h1>
         </div>
         <a className="mobile-signout" href="/api/auth/signout" title="Sign Out">🚪</a>
       </header>
@@ -39,8 +39,8 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
       {/* Desktop Sidebar Nav */}
       <aside className="side-nav">
         <div className="brand-block">
-          <p className="eyebrow">LINE Bill Slip Bot</p>
-          <h1>Expense Dashboard</h1>
+          <p className="eyebrow">Personal Balance Dashboard</p>
+          <h1>MindLife</h1>
         </div>
 
         <nav className="desktop-nav" aria-label="Dashboard navigation">
@@ -55,7 +55,7 @@ export default function AppShell({ children, users = [], selectedUserId, month, 
 
       {/* Main Workspace */}
       <main className="workspace">
-        {active === 'help' || active === 'sync' || active === 'body-metrics' ? null : (
+        {active === 'help' || active === 'sync' || active === 'body-metrics' || active === 'food-log' || active === 'running' ? null : (
           <form className="toolbar" action={page.action}>
             <div>
               <p className="eyebrow">Current scope</p>
@@ -159,6 +159,8 @@ function getNavItems(selectedUserId: string | number | undefined | null, selecte
     { id: 'transactions', label: 'Transactions', icon: '💳', href: `/transactions?${query}` },
     { id: 'categories', label: 'Categories', icon: '📂', href: `/categories?${query}` },
     { id: 'body-metrics', label: 'Body Metrics', icon: '⚖️', href: `/body-metrics?userId=${selectedUserId || ''}` },
+    { id: 'food-log', label: 'Food Log', icon: '🥗', href: `/food-log?userId=${selectedUserId || ''}` },
+    { id: 'running', label: 'Running', icon: '🏃', href: `/running?userId=${selectedUserId || ''}` },
     { id: 'sync', label: 'Sync Monitor', icon: '🔄', href: '/sync' },
     { id: 'help', label: 'Help', icon: '❓', href: helpHref, isExternal: isAbsoluteUrl(helpHref) }
   ];

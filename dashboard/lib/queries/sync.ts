@@ -10,6 +10,7 @@ export interface SyncRun {
   rows_inserted: number;
   rows_updated: number;
   error_message: string | null;
+  metadata?: any;
 }
 
 export interface SyncRowError {
@@ -39,7 +40,8 @@ export async function getSyncMonitor(): Promise<SyncMonitorData> {
          rows_read,
          rows_inserted,
          rows_updated,
-         error_message
+         error_message,
+         metadata
        FROM sync_runs
        ORDER BY started_at DESC
        LIMIT 20`

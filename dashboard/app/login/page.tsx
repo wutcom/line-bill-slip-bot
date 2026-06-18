@@ -3,7 +3,7 @@ import GoogleSignInButton from '../../components/GoogleSignInButton';
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: 'Sign in | Expense Dashboard'
+  title: 'Sign in | MindLife'
 };
 
 interface LoginPageProps {
@@ -18,8 +18,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   return (
     <main className="login-page">
       <section className="login-panel">
-        <p className="eyebrow">LINE Bill Slip Bot</p>
-        <h1>Expense Dashboard</h1>
+        <p className="eyebrow">Personal Balance Dashboard</p>
+        <h1>MindLife</h1>
         <p className="login-copy">Sign in with an approved Google account to view spending, budget plans, and sync health.</p>
 
         {error ? (

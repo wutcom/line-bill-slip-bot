@@ -175,4 +175,42 @@ SET
   sort_order = EXCLUDED.sort_order,
   updated_at = NOW();
 
+CREATE TABLE IF NOT EXISTS food_logs (
+  id BIGSERIAL PRIMARY KEY,
+  source_row_id TEXT UNIQUE,
+  created_at TIMESTAMP,
+  message_id TEXT,
+  user_id TEXT,
+  log_date DATE NOT NULL,
+  meal_name TEXT,
+  source_type TEXT,
+  detected_food TEXT,
+  user_portion_text TEXT,
+  estimated_kcal NUMERIC(10,2),
+  estimated_kcal_min NUMERIC(10,2),
+  estimated_kcal_max NUMERIC(10,2),
+  protein_g NUMERIC(10,2),
+  protein_goal_g NUMERIC(10,2),
+  carb_g NUMERIC(10,2),
+  carb_goal_g NUMERIC(10,2),
+  fat_g NUMERIC(10,2),
+  fat_goal_g NUMERIC(10,2),
+  weight_kg NUMERIC(10,2),
+  waist_inch NUMERIC(10,2),
+  sugar_level TEXT,
+  sodium_level TEXT,
+  confidence NUMERIC(5,2),
+  note TEXT,
+  raw_text TEXT,
+  source TEXT DEFAULT 'google_sheet',
+  synced_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_food_logs_log_date
+  ON food_logs (log_date);
+
+CREATE INDEX IF NOT EXISTS idx_food_logs_source_row_id
+  ON food_logs (source_row_id);
+
 COMMIT;

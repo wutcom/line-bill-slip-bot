@@ -11,6 +11,8 @@ import SyncStatusCard from '../components/SyncStatusCard';
 import { getCurrentMonthKey } from '../lib/dates';
 import { getOverview, OverviewData } from '../lib/queries/overview';
 import { getUsers, AppUser } from '../lib/queries/users';
+import { getFoodLogSummary } from '../lib/queries/foodLog';
+import FoodSummaryCard from '../components/FoodSummaryCard';
 
 interface OverviewPageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -20,7 +22,7 @@ export default async function OverviewPage({ searchParams }: OverviewPageProps) 
   const params = await searchParams;
   const month = typeof params?.month === 'string' ? params.month : getCurrentMonthKey();
   const selectedUserId = typeof params?.userId === 'string' ? params.userId : '';
-  const { users, overview, error } = await loadOverview({ userId: selectedUserId, month });
+  const { users, overview, foodSummary, error } = await loadOverview({ userId: selectedUserId, month });
   const effectiveUserId = selectedUserId || overview.userId || users[0]?.id || '';
 
   // Get string version of userId for actions preset
@@ -45,6 +47,7 @@ export default async function OverviewPage({ searchParams }: OverviewPageProps) 
           <RecentTransactions transactions={overview.recentTransactions} />
         </div>
         <div className="grid-column-right">
+          <FoodSummaryCard summary={foodSummary} />
           <TopSpenders rows={overview.topShops} />
           <SyncStatusCard 
             latestSync={overview.latestSync} 
@@ -61,17 +64,19 @@ export default async function OverviewPage({ searchParams }: OverviewPageProps) 
 interface LoadOverviewResult {
   users: AppUser[];
   overview: OverviewData;
+  foodSummary: any;
   error: string | null;
 }
 
 async function loadOverview(filters: { userId?: string | number | null; month?: string | null }): Promise<LoadOverviewResult> {
   try {
-    const [users, overview] = await Promise.all([
+    const [users, overview, foodSummary] = await Promise.all([
       getUsers(),
-      getOverview(filters)
+      getOverview(filters),
+      getFoodLogSummary(filters)
     ]);
 
-    return { users, overview, error: null };
+    return { users, overview, foodSummary, error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -90,6 +95,23 @@ async function loadOverview(filters: { userId?: string | number | null; month?: 
         latestSync: null,
         recentTransactions: [],
         totalDbTransactions: 0
+      },
+      foodSummary: {
+        todayEstimatedKcal: 0,
+        todayEstimatedKcalMin: 0,
+        todayEstimatedKcalMax: 0,
+        todayProtein: 0,
+        todayProteinGoal: 0,
+        todayCarbs: 0,
+        todayCarbsGoal: 0,
+        todayFat: 0,
+        todayFatGoal: 0,
+        latestWeight: null,
+        latestWaist: null,
+        averageConfidence: 0,
+        totalMealsToday: 0,
+        monthlyEstimatedKcal: 0,
+        latestFoodLogDate: null
       },
       error: message
     };

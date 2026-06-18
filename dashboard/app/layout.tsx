@@ -2,8 +2,8 @@ import { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata = {
-  title: 'Expense Dashboard',
-  description: 'Dashboard for LINE bill and slip expense tracking'
+  title: 'MindLife',
+  description: 'Personal Balance Dashboard'
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

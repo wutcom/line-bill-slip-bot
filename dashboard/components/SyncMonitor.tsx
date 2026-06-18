@@ -31,6 +31,95 @@ export default function SyncMonitor({ data }: { data: SyncMonitorData }) {
         </div>
       </section>
 
+      {/* Component breakdown table */}
+      <section className="section-block table-section">
+        <div className="section-heading">
+          <h3>Component sync details</h3>
+          <p>Breakdown status of individual Google Sheet worksheets.</p>
+        </div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>Rows Read</th>
+                <th>Rows Synced</th>
+                <th>Rows Skipped</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Food Log */}
+              <tr>
+                <td><strong>Food Log</strong></td>
+                <td>{formatNumber(latest?.metadata?.foodLogStats?.rowsRead || 0)}</td>
+                <td>{formatNumber((latest?.metadata?.foodLogStats?.rowsInserted || 0) + (latest?.metadata?.foodLogStats?.rowsUpdated || 0))}</td>
+                <td>{formatNumber((latest?.metadata?.foodLogStats?.rowsRead || 0) - ((latest?.metadata?.foodLogStats?.rowsInserted || 0) + (latest?.metadata?.foodLogStats?.rowsUpdated || 0)))}</td>
+                <td>
+                  <span className={`status-pill ${latest?.status === 'success' ? 'success' : latest?.status === 'failed' ? 'failed' : 'neutral'}`}>
+                    {latest?.status === 'success' ? 'Synced' : latest?.status === 'failed' ? 'Failed' : 'Pending'}
+                  </span>
+                </td>
+              </tr>
+              {/* Transactions */}
+              <tr>
+                <td><strong>Transactions</strong></td>
+                <td>{formatNumber(latest?.metadata?.transactionStats?.rowsRead || 0)}</td>
+                <td>{formatNumber((latest?.metadata?.transactionStats?.rowsInserted || 0) + (latest?.metadata?.transactionStats?.rowsUpdated || 0))}</td>
+                <td>{formatNumber((latest?.metadata?.transactionStats?.rowsRead || 0) - ((latest?.metadata?.transactionStats?.rowsInserted || 0) + (latest?.metadata?.transactionStats?.rowsUpdated || 0)))}</td>
+                <td>
+                  <span className={`status-pill ${latest?.status === 'success' ? 'success' : latest?.status === 'failed' ? 'failed' : 'neutral'}`}>
+                    {latest?.status === 'success' ? 'Synced' : latest?.status === 'failed' ? 'Failed' : 'Pending'}
+                  </span>
+                </td>
+              </tr>
+              {/* Budget Plan */}
+              <tr>
+                <td><strong>Budget Plans</strong></td>
+                <td>{formatNumber(latest?.metadata?.budgetStats?.rowsRead || 0)}</td>
+                <td>{formatNumber((latest?.metadata?.budgetStats?.rowsInserted || 0) + (latest?.metadata?.budgetStats?.rowsUpdated || 0))}</td>
+                <td>{formatNumber((latest?.metadata?.budgetStats?.rowsRead || 0) - ((latest?.metadata?.budgetStats?.rowsInserted || 0) + (latest?.metadata?.budgetStats?.rowsUpdated || 0)))}</td>
+                <td>
+                  <span className={`status-pill ${latest?.status === 'success' ? 'success' : latest?.status === 'failed' ? 'failed' : 'neutral'}`}>
+                    {latest?.status === 'success' ? 'Synced' : latest?.status === 'failed' ? 'Failed' : 'Pending'}
+                  </span>
+                </td>
+              </tr>
+              {/* Budget Payments */}
+              <tr>
+                <td><strong>Budget Payments</strong></td>
+                <td>{formatNumber(latest?.metadata?.budgetPaymentStats?.rowsRead || 0)}</td>
+                <td>{formatNumber((latest?.metadata?.budgetPaymentStats?.rowsInserted || 0) + (latest?.metadata?.budgetPaymentStats?.rowsUpdated || 0))}</td>
+                <td>{formatNumber((latest?.metadata?.budgetPaymentStats?.rowsRead || 0) - ((latest?.metadata?.budgetPaymentStats?.rowsInserted || 0) + (latest?.metadata?.budgetPaymentStats?.rowsUpdated || 0)))}</td>
+                <td>
+                  <span className={`status-pill ${latest?.status === 'success' ? 'success' : latest?.status === 'failed' ? 'failed' : 'neutral'}`}>
+                    {latest?.status === 'success' ? 'Synced' : latest?.status === 'failed' ? 'Failed' : 'Pending'}
+                  </span>
+                </td>
+              </tr>
+              {/* Body Metrics */}
+              <tr>
+                <td><strong>Body Metrics</strong></td>
+                <td>{formatNumber(latest?.metadata?.bodyMetricsStats?.rowsRead || 0)}</td>
+                <td>{formatNumber((latest?.metadata?.bodyMetricsStats?.rowsInserted || 0) + (latest?.metadata?.bodyMetricsStats?.rowsUpdated || 0))}</td>
+                <td>{formatNumber((latest?.metadata?.bodyMetricsStats?.rowsRead || 0) - ((latest?.metadata?.bodyMetricsStats?.rowsInserted || 0) + (latest?.metadata?.bodyMetricsStats?.rowsUpdated || 0)))}</td>
+                <td>
+                  <span className={`status-pill ${latest?.status === 'success' ? 'success' : latest?.status === 'failed' ? 'failed' : 'neutral'}`}>
+                    {latest?.status === 'success' ? 'Synced' : latest?.status === 'failed' ? 'Failed' : 'Pending'}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {latest?.status === 'failed' && latest?.error_message && (
+          <div className="notice" style={{ marginTop: '14px', borderLeft: '4px solid var(--danger)' }}>
+            <strong>Sync failure error message:</strong>
+            <p>{latest.error_message}</p>
+          </div>
+        )}
+      </section>
+
       <section className="section-block table-section">
         <div className="section-heading">
           <h3>Recent sync runs</h3>

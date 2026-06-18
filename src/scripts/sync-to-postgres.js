@@ -9,6 +9,7 @@ const TRANSACTION_SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
 const BUDGET_SHEET_NAME = process.env.BUDGET_SHEET_NAME || 'BudgetPlan';
 const BUDGET_PAYMENT_SHEET_NAME = process.env.BUDGET_PAYMENT_SHEET_NAME || 'BudgetPayments';
 const BODY_METRICS_SHEET_NAME = process.env.BODY_METRICS_SHEET_NAME || 'BodyMetrics';
+const FOOD_LOGS_SHEET_NAME = process.env.NUTRITION_LOGS_SHEET_NAME || 'NutritionLogs';
 
 const CATEGORY_CODES = {
   food: 'food',
@@ -33,16 +34,18 @@ async function main() {
       const budgetStats = await syncBudgetPlans(client, categoryMap, syncRunId);
       const budgetPaymentStats = await syncBudgetPayments(client, syncRunId);
       const bodyMetricsStats = await syncBodyMetrics(client, syncRunId);
+      const foodLogStats = await syncFoodLogs(client, syncRunId);
 
       await finishSyncRun(client, syncRunId, 'success', {
-        rowsRead: transactionStats.rowsRead + budgetStats.rowsRead + budgetPaymentStats.rowsRead + bodyMetricsStats.rowsRead,
-        rowsInserted: transactionStats.rowsInserted + budgetStats.rowsInserted + budgetPaymentStats.rowsInserted + bodyMetricsStats.rowsInserted,
-        rowsUpdated: transactionStats.rowsUpdated + budgetStats.rowsUpdated + budgetPaymentStats.rowsUpdated + bodyMetricsStats.rowsUpdated,
+        rowsRead: transactionStats.rowsRead + budgetStats.rowsRead + budgetPaymentStats.rowsRead + bodyMetricsStats.rowsRead + foodLogStats.rowsRead,
+        rowsInserted: transactionStats.rowsInserted + budgetStats.rowsInserted + budgetPaymentStats.rowsInserted + bodyMetricsStats.rowsInserted + foodLogStats.rowsInserted,
+        rowsUpdated: transactionStats.rowsUpdated + budgetStats.rowsUpdated + budgetPaymentStats.rowsUpdated + bodyMetricsStats.rowsUpdated + foodLogStats.rowsUpdated,
         metadata: {
           transactionStats,
           budgetStats,
           budgetPaymentStats,
-          bodyMetricsStats
+          bodyMetricsStats,
+          foodLogStats
         }
       });
 
@@ -50,7 +53,8 @@ async function main() {
         transactionStats,
         budgetStats,
         budgetPaymentStats,
-        bodyMetricsStats
+        bodyMetricsStats,
+        foodLogStats
       });
     } catch (error) {
       console.error('Original sync error occurred:', error);
@@ -285,49 +289,63 @@ async function syncBodyMetrics(client, syncRunId) {
 async function upsertBodyMetric(client, data) {
   const recordedDateObj = data.recordedDate ? new Date(data.recordedDate) : null;
 
-  const existing = await client.bodyMetric.findUnique({
-    where: {
-      body_metrics_unique_user_date: {
-        userId: data.userId,
-        recordedDate: recordedDateObj
-      }
-    },
-    select: { id: true }
-  });
+  const existingRes = await client.query(
+    `SELECT id FROM body_metrics WHERE user_id = $1 AND recorded_date = $2`,
+    [data.userId, recordedDateObj]
+  );
 
-  const metricData = {
-    weight: data.weight,
-    height: data.height,
-    bmi: data.bmi,
-    bodyFatPct: data.bodyFatPct,
-    muscleMass: data.muscleMass,
-    waist: data.waist,
-    bpSystolic: data.bpSystolic,
-    bpDiastolic: data.bpDiastolic,
-    note: data.note || null,
-    sourceSheetRow: data.sourceSheetRow,
-    sourceHash: data.sourceHash,
-    syncedAt: new Date()
-  };
-
-  if (existing) {
-    await client.bodyMetric.update({
-      where: { id: existing.id },
-      data: {
-        ...metricData,
-        updatedAt: new Date()
-      }
-    });
+  if (existingRes.rows.length > 0) {
+    const existingId = existingRes.rows[0].id;
+    await client.query(
+      `UPDATE body_metrics
+       SET weight = $1, height = $2, bmi = $3, body_fat_pct = $4, muscle_mass = $5,
+           waist = $6, bp_systolic = $7, bp_diastolic = $8, note = $9,
+           source_sheet_row = $10, source_hash = $11, synced_at = $12, updated_at = $13
+       WHERE id = $14`,
+      [
+        data.weight,
+        data.height,
+        data.bmi,
+        data.bodyFatPct,
+        data.muscleMass,
+        data.waist,
+        data.bpSystolic,
+        data.bpDiastolic,
+        data.note || null,
+        data.sourceSheetRow,
+        data.sourceHash,
+        new Date(), // syncedAt
+        new Date(), // updatedAt
+        existingId
+      ]
+    );
     return 'rowsUpdated';
   } else {
-    await client.bodyMetric.create({
-      data: {
-        ...metricData,
-        userId: data.userId,
-        recordedDate: recordedDateObj,
-        createdAt: new Date()
-      }
-    });
+    await client.query(
+      `INSERT INTO body_metrics (
+         user_id, recorded_date, weight, height, bmi, body_fat_pct, muscle_mass,
+         waist, bp_systolic, bp_diastolic, note, source_sheet_row, source_hash,
+         synced_at, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+      [
+        data.userId,
+        recordedDateObj,
+        data.weight,
+        data.height,
+        data.bmi,
+        data.bodyFatPct,
+        data.muscleMass,
+        data.waist,
+        data.bpSystolic,
+        data.bpDiastolic,
+        data.note || null,
+        data.sourceSheetRow,
+        data.sourceHash,
+        new Date(), // syncedAt
+        new Date(), // createdAt
+        new Date() // updatedAt
+      ]
+    );
     return 'rowsInserted';
   }
 }
@@ -346,240 +364,348 @@ function parseNullableInt(value) {
 }
 
 async function createSyncRun(client, startedAt) {
-  const run = await client.syncRun.create({
-    data: {
-      jobName: 'google-sheet-to-postgres',
-      startedAt: startedAt,
-      status: 'running'
-    }
-  });
-
-  return run.id;
+  const res = await client.query(
+    `INSERT INTO sync_runs (job_name, started_at, status) 
+     VALUES ($1, $2, $3) 
+     RETURNING id`,
+    ['google-sheet-to-postgres', startedAt, 'running']
+  );
+  return res.rows[0].id;
 }
 
 async function finishSyncRun(client, syncRunId, status, data = {}) {
-  await client.syncRun.update({
-    where: { id: syncRunId },
-    data: {
-      finishedAt: new Date(),
-      status,
-      rowsRead: data.rowsRead !== undefined ? data.rowsRead : undefined,
-      rowsInserted: data.rowsInserted !== undefined ? data.rowsInserted : undefined,
-      rowsUpdated: data.rowsUpdated !== undefined ? data.rowsUpdated : undefined,
-      errorMessage: data.errorMessage !== undefined ? data.errorMessage : undefined,
-      metadata: data.metadata !== undefined ? data.metadata : undefined
-    }
-  });
+  const fields = ['finished_at = $1', 'status = $2'];
+  const values = [new Date(), status];
+  let paramIndex = 3;
+
+  if (data.rowsRead !== undefined) {
+    fields.push(`rows_read = $${paramIndex++}`);
+    values.push(data.rowsRead);
+  }
+  if (data.rowsInserted !== undefined) {
+    fields.push(`rows_inserted = $${paramIndex++}`);
+    values.push(data.rowsInserted);
+  }
+  if (data.rowsUpdated !== undefined) {
+    fields.push(`rows_updated = $${paramIndex++}`);
+    values.push(data.rowsUpdated);
+  }
+  if (data.errorMessage !== undefined) {
+    fields.push(`error_message = $${paramIndex++}`);
+    values.push(data.errorMessage);
+  }
+  if (data.metadata !== undefined) {
+    fields.push(`metadata = $${paramIndex++}`);
+    values.push(JSON.stringify(data.metadata));
+  }
+
+  values.push(syncRunId);
+  const queryText = `UPDATE sync_runs SET ${fields.join(', ')} WHERE id = $${paramIndex}`;
+  await client.query(queryText, values);
 }
 
 async function insertRowError(client, syncRunId, sheetName, sheetRow, error, rawData) {
-  await client.syncRowError.create({
-    data: {
+  await client.query(
+    `INSERT INTO sync_row_errors (sync_run_id, sheet_name, sheet_row, error_message, raw_data, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
       syncRunId,
       sheetName,
       sheetRow,
-      errorMessage: error.message,
-      rawData: rawData ? JSON.parse(JSON.stringify(rawData)) : null
-    }
-  });
+      error.message,
+      rawData ? JSON.stringify(rawData) : null,
+      new Date()
+    ]
+  );
 }
 
 async function loadCategoryMap(client) {
-  const categories = await client.category.findMany({
-    where: { isActive: true },
-    select: { id: true, code: true }
-  });
-
-  return categories.reduce((map, cat) => {
+  const res = await client.query(
+    `SELECT id, code FROM categories WHERE is_active = true`
+  );
+  return res.rows.reduce((map, cat) => {
     map[cat.code] = cat.id;
     return map;
   }, {});
 }
 
 async function upsertUser(client, lineUserId) {
-  const user = await client.appUser.upsert({
-    where: { lineUserId },
-    update: { updatedAt: new Date() },
-    create: { lineUserId }
-  });
-
-  return user.id;
+  const res = await client.query(
+    `INSERT INTO app_users (line_user_id, updated_at)
+     VALUES ($1, $2)
+     ON CONFLICT (line_user_id) 
+     DO UPDATE SET updated_at = EXCLUDED.updated_at
+     RETURNING id`,
+    [lineUserId, new Date()]
+  );
+  return res.rows[0].id;
 }
 
 async function upsertTransaction(client, data) {
-  const transactionData = {
-    documentType: data.documentType || null,
-    expenseType: data.expenseType,
-    shopOrBankName: data.shopOrBankName || null,
-    amount: data.amount,
-    transactionDate: data.transactionDate ? new Date(data.transactionDate) : null,
-    referenceNo: data.referenceNo || null,
-    categoryId: data.categoryId || null,
-    categoryText: data.categoryText || null,
-    description: data.description || null,
-    rawText: data.rawText || null,
-    imageFileId: data.imageFileId || null,
-    imageUrl: data.imageUrl || null,
-    imageStoredAt: data.imageStoredAt || null,
-    ocrConfidence: data.ocrConfidence || null,
-    status: data.status,
-    sourceSheetRow: data.sourceSheetRow,
-    sourceHash: data.sourceHash,
-    syncedAt: new Date()
-  };
-
   if (data.lineMessageId) {
-    const existing = await client.transaction.findUnique({
-      where: {
-        unique_user_message: {
-          userId: data.userId,
-          lineMessageId: data.lineMessageId
-        }
-      },
-      select: { id: true }
-    });
+    const existingRes = await client.query(
+      `SELECT id FROM transactions WHERE user_id = $1 AND line_message_id = $2`,
+      [data.userId, data.lineMessageId]
+    );
 
-    if (existing) {
-      await client.transaction.update({
-        where: { id: existing.id },
-        data: {
-          ...transactionData,
-          updatedAt: new Date()
-        }
-      });
+    if (existingRes.rows.length > 0) {
+      const existingId = existingRes.rows[0].id;
+      await client.query(
+        `UPDATE transactions
+         SET document_type = $1, expense_type = $2, shop_or_bank_name = $3, amount = $4,
+             transaction_date = $5, reference_no = $6, category_id = $7, category_text = $8,
+             description = $9, raw_text = $10, image_file_id = $11, image_url = $12,
+             image_stored_at = $13, ocr_confidence = $14, status = $15, source_sheet_row = $16,
+             source_hash = $17, synced_at = $18, updated_at = $19
+         WHERE id = $20`,
+        [
+          data.documentType || null,
+          data.expenseType,
+          data.shopOrBankName || null,
+          data.amount,
+          data.transactionDate ? new Date(data.transactionDate) : null,
+          data.referenceNo || null,
+          data.categoryId || null,
+          data.categoryText || null,
+          data.description || null,
+          data.rawText || null,
+          data.imageFileId || null,
+          data.imageUrl || null,
+          data.imageStoredAt || null,
+          data.ocrConfidence || null,
+          data.status,
+          data.sourceSheetRow,
+          data.sourceHash,
+          new Date(), // syncedAt
+          new Date(), // updatedAt
+          existingId
+        ]
+      );
       return 'rowsUpdated';
     } else {
-      await client.transaction.create({
-        data: {
-          ...transactionData,
-          userId: data.userId,
-          lineMessageId: data.lineMessageId,
-          createdAt: data.createdAt || new Date()
-        }
-      });
+      await client.query(
+        `INSERT INTO transactions (
+           user_id, line_message_id, document_type, expense_type, shop_or_bank_name, amount,
+           transaction_date, reference_no, category_id, category_text, description, raw_text,
+           image_file_id, image_url, image_stored_at, ocr_confidence, status, source_sheet_row,
+           source_hash, synced_at, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+        [
+          data.userId,
+          data.lineMessageId,
+          data.documentType || null,
+          data.expenseType,
+          data.shopOrBankName || null,
+          data.amount,
+          data.transactionDate ? new Date(data.transactionDate) : null,
+          data.referenceNo || null,
+          data.categoryId || null,
+          data.categoryText || null,
+          data.description || null,
+          data.rawText || null,
+          data.imageFileId || null,
+          data.imageUrl || null,
+          data.imageStoredAt || null,
+          data.ocrConfidence || null,
+          data.status,
+          data.sourceSheetRow,
+          data.sourceHash,
+          new Date(), // syncedAt
+          data.createdAt || new Date(), // createdAt
+          new Date() // updatedAt
+        ]
+      );
       return 'rowsInserted';
     }
   }
 
-  const existing = await client.transaction.findFirst({
-    where: {
-      userId: data.userId,
-      sourceHash: data.sourceHash
-    },
-    select: { id: true }
-  });
+  const existingRes = await client.query(
+    `SELECT id FROM transactions WHERE user_id = $1 AND source_hash = $2`,
+    [data.userId, data.sourceHash]
+  );
 
-  if (existing) {
-    await client.transaction.update({
-      where: { id: existing.id },
-      data: {
-        ...transactionData,
-        updatedAt: new Date()
-      }
-    });
+  if (existingRes.rows.length > 0) {
+    const existingId = existingRes.rows[0].id;
+    await client.query(
+      `UPDATE transactions
+       SET document_type = $1, expense_type = $2, shop_or_bank_name = $3, amount = $4,
+           transaction_date = $5, reference_no = $6, category_id = $7, category_text = $8,
+           description = $9, raw_text = $10, image_file_id = $11, image_url = $12,
+           image_stored_at = $13, ocr_confidence = $14, status = $15, source_sheet_row = $16,
+           source_hash = $17, synced_at = $18, updated_at = $19
+       WHERE id = $20`,
+      [
+        data.documentType || null,
+        data.expenseType,
+        data.shopOrBankName || null,
+        data.amount,
+        data.transactionDate ? new Date(data.transactionDate) : null,
+        data.referenceNo || null,
+        data.categoryId || null,
+        data.categoryText || null,
+        data.description || null,
+        data.rawText || null,
+        data.imageFileId || null,
+        data.imageUrl || null,
+        data.imageStoredAt || null,
+        data.ocrConfidence || null,
+        data.status,
+        data.sourceSheetRow,
+        data.sourceHash,
+        new Date(), // syncedAt
+        new Date(), // updatedAt
+        existingId
+      ]
+    );
     return 'rowsUpdated';
   } else {
-    await client.transaction.create({
-      data: {
-        ...transactionData,
-        userId: data.userId,
-        createdAt: data.createdAt || new Date()
-      }
-    });
+    await client.query(
+      `INSERT INTO transactions (
+         user_id, line_message_id, document_type, expense_type, shop_or_bank_name, amount,
+         transaction_date, reference_no, category_id, category_text, description, raw_text,
+         image_file_id, image_url, image_stored_at, ocr_confidence, status, source_sheet_row,
+         source_hash, synced_at, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+      [
+        data.userId,
+        null, // lineMessageId
+        data.documentType || null,
+        data.expenseType,
+        data.shopOrBankName || null,
+        data.amount,
+        data.transactionDate ? new Date(data.transactionDate) : null,
+        data.referenceNo || null,
+        data.categoryId || null,
+        data.categoryText || null,
+        data.description || null,
+        data.rawText || null,
+        data.imageFileId || null,
+        data.imageUrl || null,
+        data.imageStoredAt || null,
+        data.ocrConfidence || null,
+        data.status,
+        data.sourceSheetRow,
+        data.sourceHash,
+        new Date(), // syncedAt
+        data.createdAt || new Date(), // createdAt
+        new Date() // updatedAt
+      ]
+    );
     return 'rowsInserted';
   }
 }
 
 async function upsertBudgetPlan(client, data) {
   const planMonthDate = data.planMonth ? new Date(data.planMonth) : null;
-  
-  const existing = await client.budgetPlan.findUnique({
-    where: {
-      unique_user_month_name: {
-        userId: data.userId,
-        planMonth: planMonthDate,
-        planName: data.planName
-      }
-    },
-    select: { id: true }
-  });
 
-  const planData = {
-    categoryId: data.categoryId || null,
-    planAmount: data.planAmount,
-    status: data.status,
-    remark: data.remark || null,
-    sourceSheetRow: data.sourceSheetRow,
-    updatedAt: data.updatedAt || new Date()
-  };
+  const existingRes = await client.query(
+    `SELECT id FROM budget_plans WHERE user_id = $1 AND plan_month = $2 AND plan_name = $3`,
+    [data.userId, planMonthDate, data.planName]
+  );
 
-  if (existing) {
-    await client.budgetPlan.update({
-      where: { id: existing.id },
-      data: planData
-    });
+  if (existingRes.rows.length > 0) {
+    const existingId = existingRes.rows[0].id;
+    await client.query(
+      `UPDATE budget_plans
+       SET category_id = $1, plan_amount = $2, status = $3, remark = $4,
+           source_sheet_row = $5, updated_at = $6
+       WHERE id = $7`,
+      [
+        data.categoryId || null,
+        data.planAmount,
+        data.status,
+        data.remark || null,
+        data.sourceSheetRow,
+        data.updatedAt || new Date(),
+        existingId
+      ]
+    );
     return 'rowsUpdated';
   } else {
-    await client.budgetPlan.create({
-      data: {
-        ...planData,
-        userId: data.userId,
-        planMonth: planMonthDate,
-        planName: data.planName,
-        createdAt: data.createdAt || new Date()
-      }
-    });
+    await client.query(
+      `INSERT INTO budget_plans (
+         user_id, plan_month, plan_name, category_id, plan_amount, status, remark,
+         source_sheet_row, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        data.userId,
+        planMonthDate,
+        data.planName,
+        data.categoryId || null,
+        data.planAmount,
+        data.status,
+        data.remark || null,
+        data.sourceSheetRow,
+        data.createdAt || new Date(),
+        data.updatedAt || new Date()
+      ]
+    );
     return 'rowsInserted';
   }
 }
 
 async function findBudgetPlanId(client, userId, planMonth, planName) {
-  const plan = await client.budgetPlan.findFirst({
-    where: {
-      userId,
-      planMonth: planMonth ? new Date(planMonth) : undefined,
-      planName
-    },
-    select: { id: true }
-  });
-
-  return plan?.id || null;
+  const planMonthDate = planMonth ? new Date(planMonth) : null;
+  const res = await client.query(
+    `SELECT id FROM budget_plans 
+     WHERE user_id = $1 AND (plan_month = $2 OR $2 IS NULL) AND plan_name = $3
+     LIMIT 1`,
+    [userId, planMonthDate, planName]
+  );
+  return res.rows.length > 0 ? res.rows[0].id : null;
 }
 
 async function upsertBudgetPayment(client, data) {
-  const existing = await client.budgetPayment.findUnique({
-    where: { paymentId: data.paymentId },
-    select: { paymentId: true }
-  });
+  const existingRes = await client.query(
+    `SELECT payment_id FROM budget_payments WHERE payment_id = $1`,
+    [data.paymentId]
+  );
 
-  const paymentData = {
-    userId: data.userId,
-    budgetPlanId: data.budgetPlanId || null,
-    planMonth: data.planMonth ? new Date(data.planMonth) : null,
-    planName: data.planName,
-    amount: data.amount,
-    paymentDate: data.paymentDate ? new Date(data.paymentDate) : null,
-    note: data.note || null,
-    status: data.status,
-    sourceSheetRow: data.sourceSheetRow,
-    updatedAt: data.updatedAt || new Date(),
-    syncedAt: new Date()
-  };
-
-  if (existing) {
-    await client.budgetPayment.update({
-      where: { paymentId: data.paymentId },
-      data: paymentData
-    });
+  if (existingRes.rows.length > 0) {
+    await client.query(
+      `UPDATE budget_payments
+       SET user_id = $1, budget_plan_id = $2, plan_month = $3, plan_name = $4,
+           amount = $5, payment_date = $6, note = $7, status = $8,
+           source_sheet_row = $9, updated_at = $10, synced_at = $11
+       WHERE payment_id = $12`,
+      [
+        data.userId,
+        data.budgetPlanId || null,
+        data.planMonth ? new Date(data.planMonth) : null,
+        data.planName,
+        data.amount,
+        data.paymentDate ? new Date(data.paymentDate) : null,
+        data.note || null,
+        data.status,
+        data.sourceSheetRow,
+        data.updatedAt || new Date(),
+        new Date(), // syncedAt
+        data.paymentId
+      ]
+    );
     return 'rowsUpdated';
   } else {
-    await client.budgetPayment.create({
-      data: {
-        ...paymentData,
-        paymentId: data.paymentId,
-        createdAt: data.createdAt || new Date()
-      }
-    });
+    await client.query(
+      `INSERT INTO budget_payments (
+         payment_id, user_id, budget_plan_id, plan_month, plan_name, amount,
+         payment_date, note, status, source_sheet_row, created_at, updated_at, synced_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [
+        data.paymentId,
+        data.userId,
+        data.budgetPlanId || null,
+        data.planMonth ? new Date(data.planMonth) : null,
+        data.planName,
+        data.amount,
+        data.paymentDate ? new Date(data.paymentDate) : null,
+        data.note || null,
+        data.status,
+        data.sourceSheetRow,
+        data.createdAt || new Date(),
+        data.updatedAt || new Date(),
+        new Date() // syncedAt
+      ]
+    );
     return 'rowsInserted';
   }
 }
@@ -614,7 +740,7 @@ function mapRow(headers, row, fallbackHeaders) {
 function hasKnownHeader(headers) {
   const normalized = headers.map(normalizeHeader);
 
-  return normalized.includes('userid') || normalized.includes('messageid') || normalized.includes('planname') || normalized.includes('recordeddate');
+  return normalized.includes('userid') || normalized.includes('messageid') || normalized.includes('planname') || normalized.includes('recordeddate') || normalized.includes('detectedfood') || normalized.includes('logdate');
 }
 
 function value(source, name) {
@@ -781,6 +907,7 @@ function parseTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+// Ensure database query numeric parameter parsing parses values correctly
 function parseNullableNumber(value) {
   if (value === null || value === undefined || value === '') return null;
 
@@ -818,6 +945,173 @@ function getThaiMonthNumber(monthText) {
   };
 
   return months[key] || null;
+}
+
+async function syncFoodLogs(client, syncRunId) {
+  const rows = await getSheetRows(FOOD_LOGS_SHEET_NAME, 'A:Z');
+  const { headers, dataRows } = parseSheetRows(rows);
+  const stats = createStats(dataRows.length);
+
+  const requiredHeaders = [
+    'CreatedAt', 'MessageId', 'UserId', 'LogDate', 'MealName', 'SourceType', 
+    'DetectedFood', 'UserPortionText', 'EstimatedKcal', 'EstimatedKcalMin', 
+    'EstimatedKcalMax', 'ProteinG', 'ProteinGoalG', 'CarbG', 'CarbGoalG', 
+    'FatG', 'FatGoalG', 'WeightKg', 'WaistInch', 'SugarLevel', 'SodiumLevel', 
+    'Confidence', 'Note', 'RawText'
+  ];
+  
+  const normalizedHeaders = headers.map(normalizeHeader);
+  for (const req of requiredHeaders) {
+    if (!normalizedHeaders.includes(normalizeHeader(req))) {
+      throw new Error(`Missing required header: ${req}`);
+    }
+  }
+
+  for (const row of dataRows) {
+    try {
+      const source = mapRow(headers, row.values, requiredHeaders);
+      const logDateText = value(source, 'LogDate');
+      const logDate = parseDate(logDateText);
+
+      if (!logDate) {
+        console.warn(`Skipping row ${row.rowNumber} due to invalid LogDate: "${logDateText}"`);
+        continue;
+      }
+
+      const messageId = value(source, 'MessageId');
+      let sourceRowId = messageId ? `${messageId}_${logDate}` : `row_${row.rowNumber}`;
+      
+      const data = {
+        sourceRowId,
+        createdAt: parseTimestamp(value(source, 'CreatedAt')),
+        messageId: messageId || null,
+        userId: value(source, 'UserId') || null,
+        logDate: new Date(logDate),
+        mealName: value(source, 'MealName') || null,
+        sourceType: value(source, 'SourceType') || null,
+        detectedFood: value(source, 'DetectedFood') || null,
+        userPortionText: value(source, 'UserPortionText') || null,
+        estimatedKcal: parseNullableNumber(value(source, 'EstimatedKcal')),
+        estimatedKcalMin: parseNullableNumber(value(source, 'EstimatedKcalMin')),
+        estimatedKcalMax: parseNullableNumber(value(source, 'EstimatedKcalMax')),
+        proteinG: parseNullableNumber(value(source, 'ProteinG')),
+        proteinGoalG: parseNullableNumber(value(source, 'ProteinGoalG')),
+        carbG: parseNullableNumber(value(source, 'CarbG')),
+        carbGoalG: parseNullableNumber(value(source, 'CarbGoalG')),
+        fatG: parseNullableNumber(value(source, 'FatG')),
+        fatGoalG: parseNullableNumber(value(source, 'FatGoalG')),
+        weightKg: parseNullableNumber(value(source, 'WeightKg')),
+        waistInch: parseNullableNumber(value(source, 'WaistInch')),
+        sugarLevel: value(source, 'SugarLevel') || null,
+        sodiumLevel: value(source, 'SodiumLevel') || null,
+        confidence: parseNullableNumber(value(source, 'Confidence')),
+        note: value(source, 'Note') || null,
+        rawText: value(source, 'RawText') || null,
+        source: 'google_sheet'
+      };
+
+      const result = await upsertFoodLog(client, data);
+      stats[result]++;
+    } catch (error) {
+      console.error('upsertFoodLog error at row:', row.rowNumber, error);
+      await insertRowError(client, syncRunId, FOOD_LOGS_SHEET_NAME, row.rowNumber, error, row.values);
+    }
+  }
+
+  return stats;
+}
+
+async function upsertFoodLog(client, data) {
+  const existingRes = await client.query(
+    `SELECT id FROM food_logs WHERE source_row_id = $1`,
+    [data.sourceRowId]
+  );
+
+  if (existingRes.rows.length > 0) {
+    const existingId = existingRes.rows[0].id;
+    await client.query(
+      `UPDATE food_logs
+       SET created_at = $1, message_id = $2, user_id = $3, log_date = $4,
+           meal_name = $5, source_type = $6, detected_food = $7, user_portion_text = $8,
+           estimated_kcal = $9, estimated_kcal_min = $10, estimated_kcal_max = $11,
+           protein_g = $12, protein_goal_g = $13, carb_g = $14, carb_goal_g = $15,
+           fat_g = $16, fat_goal_g = $17, weight_kg = $18, waist_inch = $19,
+           sugar_level = $20, sodium_level = $21, confidence = $22, note = $23,
+           raw_text = $24, source = $25, updated_at = $26
+       WHERE id = $27`,
+      [
+        data.createdAt,
+        data.messageId,
+        data.userId,
+        data.logDate,
+        data.mealName,
+        data.sourceType,
+        data.detectedFood,
+        data.userPortionText,
+        data.estimatedKcal,
+        data.estimatedKcalMin,
+        data.estimatedKcalMax,
+        data.proteinG,
+        data.proteinGoalG,
+        data.carbG,
+        data.carbGoalG,
+        data.fatG,
+        data.fatGoalG,
+        data.weightKg,
+        data.waistInch,
+        data.sugarLevel,
+        data.sodiumLevel,
+        data.confidence,
+        data.note,
+        data.rawText,
+        data.source,
+        new Date(), // updatedAt
+        existingId
+      ]
+    );
+    return 'rowsUpdated';
+  } else {
+    await client.query(
+      `INSERT INTO food_logs (
+         source_row_id, created_at, message_id, user_id, log_date, meal_name,
+         source_type, detected_food, user_portion_text, estimated_kcal, estimated_kcal_min,
+         estimated_kcal_max, protein_g, protein_goal_g, carb_g, carb_goal_g, fat_g,
+         fat_goal_g, weight_kg, waist_inch, sugar_level, sodium_level, confidence,
+         note, raw_text, source, synced_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`,
+      [
+        data.sourceRowId,
+        data.createdAt || new Date(),
+        data.messageId,
+        data.userId,
+        data.logDate,
+        data.mealName,
+        data.sourceType,
+        data.detectedFood,
+        data.userPortionText,
+        data.estimatedKcal,
+        data.estimatedKcalMin,
+        data.estimatedKcalMax,
+        data.proteinG,
+        data.proteinGoalG,
+        data.carbG,
+        data.carbGoalG,
+        data.fatG,
+        data.fatGoalG,
+        data.weightKg,
+        data.waistInch,
+        data.sugarLevel,
+        data.sodiumLevel,
+        data.confidence,
+        data.note,
+        data.rawText,
+        data.source,
+        new Date(), // syncedAt
+        new Date() // updatedAt
+      ]
+    );
+    return 'rowsInserted';
+  }
 }
 
 function pad2(value) {

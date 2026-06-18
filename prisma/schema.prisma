@@ -193,3 +193,38 @@ model SyncRowError {
 
   @@map("sync_row_errors")
 }
+
+model FoodLog {
+  id                BigInt    @id @default(autoincrement())
+  sourceRowId      String?   @unique @map("source_row_id")
+  createdAt         DateTime? @map("created_at") @db.Timestamp
+  messageId         String?   @map("message_id")
+  userId            String?   @map("user_id")
+  logDate           DateTime  @map("log_date") @db.Date
+  mealName          String?   @map("meal_name")
+  sourceType        String?   @map("source_type")
+  detectedFood      String?   @map("detected_food")
+  userPortionText   String?   @map("user_portion_text")
+  estimatedKcal     Decimal?  @map("estimated_kcal") @db.Decimal(10, 2)
+  estimatedKcalMin  Decimal?  @map("estimated_kcal_min") @db.Decimal(10, 2)
+  estimatedKcalMax  Decimal?  @map("estimated_kcal_max") @db.Decimal(10, 2)
+  proteinG          Decimal?  @map("protein_g") @db.Decimal(10, 2)
+  proteinGoalG      Decimal?  @map("protein_goal_g") @db.Decimal(10, 2)
+  carbG             Decimal?  @map("carb_g") @db.Decimal(10, 2)
+  carbGoalG         Decimal?  @map("carb_goal_g") @db.Decimal(10, 2)
+  fatG              Decimal?  @map("fat_g") @db.Decimal(10, 2)
+  fatGoalG          Decimal?  @map("fat_goal_g") @db.Decimal(10, 2)
+  weightKg          Decimal?  @map("weight_kg") @db.Decimal(10, 2)
+  waistInch         Decimal?  @map("waist_inch") @db.Decimal(10, 2)
+  sugarLevel        String?   @map("sugar_level")
+  sodiumLevel       String?   @map("sodium_level")
+  confidence        Decimal?  @db.Decimal(5, 2)
+  note              String?
+  rawText           String?   @map("raw_text")
+  source            String?   @default("google_sheet")
+  syncedAt          DateTime? @default(now()) @map("synced_at") @db.Timestamp
+  updatedAt         DateTime? @default(now()) @map("updated_at") @db.Timestamp
+
+  @@map("food_logs")
+}
+
