@@ -3,36 +3,31 @@ import { OverviewData } from '../lib/queries/overview';
 
 interface TopSpendersProps {
   rows?: OverviewData['topShops'];
-  latestSync?: OverviewData['latestSync'];
 }
 
-export default function TopSpenders({ rows = [], latestSync }: TopSpendersProps) {
+export default function TopSpenders({ rows = [] }: TopSpendersProps) {
   return (
-    <section className="section-block">
+    <section className="section-block payment-destinations">
       <div className="section-heading">
-        <h3>Top shops and banks</h3>
-        <p>Largest confirmed spending destinations this month.</p>
+        <h3>Top Payment Destinations</h3>
+        <p>Largest spending destinations this month by total amount.</p>
       </div>
 
       <div className="rank-list">
-        {rows.length === 0 ? <p className="empty-line">No spending destinations yet.</p> : null}
+        {rows.length === 0 ? <p className="empty-line">No payment destinations yet.</p> : null}
         {rows.map((row, index) => (
           <div className="rank-row" key={`${row.shopName}-${index}`}>
-            <span>{index + 1}</span>
-            <div>
+            <span className="rank-badge">{index + 1}</span>
+            <div className="rank-details">
               <strong>{row.shopName}</strong>
               <small>{formatNumber(row.transactionCount)} transactions</small>
             </div>
-            <b>{formatMoney(row.totalAmount)}</b>
+            <b className="rank-amount">{formatMoney(row.totalAmount)}</b>
           </div>
         ))}
-      </div>
-
-      <div className={`sync-status ${latestSync?.status || 'unknown'}`}>
-        <span>Last sync</span>
-        <strong>{latestSync?.finished_at ? new Date(latestSync.finished_at).toLocaleString('th-TH') : 'No sync run'}</strong>
       </div>
     </section>
   );
 }
+
 

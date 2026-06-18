@@ -116,6 +116,30 @@ CREATE TABLE IF NOT EXISTS sync_row_errors (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS body_metrics (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  recorded_date DATE NOT NULL,
+  weight NUMERIC(6,2),
+  height NUMERIC(6,2),
+  bmi NUMERIC(5,2),
+  body_fat_pct NUMERIC(5,2),
+  muscle_mass NUMERIC(6,2),
+  waist NUMERIC(6,2),
+  bp_systolic INTEGER,
+  bp_diastolic INTEGER,
+  note TEXT,
+  source_sheet_row INTEGER,
+  source_hash TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  synced_at TIMESTAMPTZ,
+  CONSTRAINT body_metrics_unique_user_date UNIQUE (user_id, recorded_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_body_metrics_user_date
+  ON body_metrics (user_id, recorded_date);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date
   ON transactions (user_id, transaction_date);
 

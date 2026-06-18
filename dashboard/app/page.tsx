@@ -5,6 +5,9 @@ import KpiStrip from '../components/KpiStrip';
 import CategoryBars from '../components/CategoryBars';
 import TopSpenders from '../components/TopSpenders';
 import SpendingChart from '../components/SpendingChart';
+import DashboardActions from '../components/DashboardActions';
+import RecentTransactions from '../components/RecentTransactions';
+import SyncStatusCard from '../components/SyncStatusCard';
 import { getCurrentMonthKey } from '../lib/dates';
 import { getOverview, OverviewData } from '../lib/queries/overview';
 import { getUsers, AppUser } from '../lib/queries/users';
@@ -20,14 +23,34 @@ export default async function OverviewPage({ searchParams }: OverviewPageProps) 
   const { users, overview, error } = await loadOverview({ userId: selectedUserId, month });
   const effectiveUserId = selectedUserId || overview.userId || users[0]?.id || '';
 
+  // Get string version of userId for actions preset
+  const stringUserId = String(effectiveUserId);
+
   return (
     <AppShell users={users} selectedUserId={effectiveUserId} month={month} active="overview">
       {error ? <ConnectionNotice message={error} /> : null}
+      
+      {/* Primary Action Buttons */}
+      <DashboardActions 
+        users={users} 
+        selectedUserId={stringUserId} 
+        selectedMonth={month} 
+      />
+
       <KpiStrip overview={overview} />
 
       <div className="content-grid">
-        <SpendingChart rows={overview.dailyTrend} />
-        <TopSpenders rows={overview.topShops} latestSync={overview.latestSync} />
+        <div className="grid-column-left">
+          <SpendingChart rows={overview.dailyTrend} />
+          <RecentTransactions transactions={overview.recentTransactions} />
+        </div>
+        <div className="grid-column-right">
+          <TopSpenders rows={overview.topShops} />
+          <SyncStatusCard 
+            latestSync={overview.latestSync} 
+            totalDbTransactions={overview.totalDbTransactions} 
+          />
+        </div>
       </div>
 
       <CategoryBars rows={overview.spendingByCategory} />
@@ -64,7 +87,9 @@ async function loadOverview(filters: { userId?: string | number | null; month?: 
         spendingByCategory: [],
         topShops: [],
         dailyTrend: [],
-        latestSync: null
+        latestSync: null,
+        recentTransactions: [],
+        totalDbTransactions: 0
       },
       error: message
     };
@@ -79,4 +104,5 @@ function ConnectionNotice({ message }: { message: string }) {
     </section>
   );
 }
+
 

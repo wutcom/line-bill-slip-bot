@@ -8,12 +8,32 @@ interface SpendingChartProps {
   rows?: OverviewData['dailyTrend'];
 }
 
+function CustomTooltip({ active, payload }: any) {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="chart-tooltip">
+        <div className="tooltip-date">{data.date}</div>
+        <div className="tooltip-row">
+          <span className="tooltip-label">Spent Amount:</span>
+          <strong className="tooltip-value text-blue">{formatMoney(data.totalAmount)}</strong>
+        </div>
+        <div className="tooltip-row">
+          <span className="tooltip-label">Transactions:</span>
+          <strong className="tooltip-value">{data.transactionCount} transactions</strong>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 export default function SpendingChart({ rows = [] }: SpendingChartProps) {
   return (
     <section className="section-block chart-block">
       <div className="section-heading">
-        <h3>Daily trend</h3>
-        <p>Spending movement across the selected month.</p>
+        <h3>Daily Spending Trend</h3>
+        <p>Total spend and transaction frequency per day.</p>
       </div>
 
       <div className="chart-frame">
@@ -29,9 +49,24 @@ export default function SpendingChart({ rows = [] }: SpendingChartProps) {
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="#e5e7eb" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={64} />
-              <Tooltip formatter={(value) => formatMoney(Array.isArray(value) ? value[0] : value)} labelStyle={{ color: '#111827' }} />
+              <XAxis 
+                dataKey="date" 
+                tick={{ fontSize: 11 }} 
+                tickLine={false} 
+                axisLine={false} 
+                tickFormatter={(val) => {
+                  const parts = val.split('-');
+                  return parts.length === 3 ? `${parts[2]}/${parts[1]}` : val;
+                }}
+              />
+              <YAxis 
+                tick={{ fontSize: 11 }} 
+                tickLine={false} 
+                axisLine={false} 
+                width={70}
+                tickFormatter={(value) => formatMoney(value)}
+              />
+              <Tooltip content={<CustomTooltip />} />
               <Area type="monotone" dataKey="totalAmount" stroke="#2563eb" strokeWidth={2} fill="url(#spendingFill)" />
             </AreaChart>
           </ResponsiveContainer>
@@ -40,4 +75,5 @@ export default function SpendingChart({ rows = [] }: SpendingChartProps) {
     </section>
   );
 }
+
 

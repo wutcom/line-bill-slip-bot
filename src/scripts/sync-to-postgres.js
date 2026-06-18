@@ -8,6 +8,7 @@ const { parseAmount } = require('../utils/money.util');
 const TRANSACTION_SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
 const BUDGET_SHEET_NAME = process.env.BUDGET_SHEET_NAME || 'BudgetPlan';
 const BUDGET_PAYMENT_SHEET_NAME = process.env.BUDGET_PAYMENT_SHEET_NAME || 'BudgetPayments';
+const BODY_METRICS_SHEET_NAME = process.env.BODY_METRICS_SHEET_NAME || 'BodyMetrics';
 
 const CATEGORY_CODES = {
   food: 'food',
@@ -31,22 +32,25 @@ async function main() {
       const transactionStats = await syncTransactions(client, categoryMap, syncRunId);
       const budgetStats = await syncBudgetPlans(client, categoryMap, syncRunId);
       const budgetPaymentStats = await syncBudgetPayments(client, syncRunId);
+      const bodyMetricsStats = await syncBodyMetrics(client, syncRunId);
 
       await finishSyncRun(client, syncRunId, 'success', {
-        rowsRead: transactionStats.rowsRead + budgetStats.rowsRead + budgetPaymentStats.rowsRead,
-        rowsInserted: transactionStats.rowsInserted + budgetStats.rowsInserted + budgetPaymentStats.rowsInserted,
-        rowsUpdated: transactionStats.rowsUpdated + budgetStats.rowsUpdated + budgetPaymentStats.rowsUpdated,
+        rowsRead: transactionStats.rowsRead + budgetStats.rowsRead + budgetPaymentStats.rowsRead + bodyMetricsStats.rowsRead,
+        rowsInserted: transactionStats.rowsInserted + budgetStats.rowsInserted + budgetPaymentStats.rowsInserted + bodyMetricsStats.rowsInserted,
+        rowsUpdated: transactionStats.rowsUpdated + budgetStats.rowsUpdated + budgetPaymentStats.rowsUpdated + bodyMetricsStats.rowsUpdated,
         metadata: {
           transactionStats,
           budgetStats,
-          budgetPaymentStats
+          budgetPaymentStats,
+          bodyMetricsStats
         }
       });
 
       console.log('Sync completed:', {
         transactionStats,
         budgetStats,
-        budgetPaymentStats
+        budgetPaymentStats,
+        bodyMetricsStats
       });
     } catch (error) {
       console.error('Original sync error occurred:', error);
@@ -217,6 +221,128 @@ async function syncBudgetPayments(client, syncRunId) {
   }
 
   return stats;
+}
+
+async function syncBodyMetrics(client, syncRunId) {
+  const rows = await getSheetRows(BODY_METRICS_SHEET_NAME, 'A:Z');
+  const { headers, dataRows } = parseSheetRows(rows);
+  const stats = createStats(dataRows.length);
+
+  for (const row of dataRows) {
+    try {
+      const source = mapRow(headers, row.values, getLegacyBodyMetricsHeaders());
+      const userIdText = value(source, 'UserId');
+
+      if (!userIdText) {
+        continue;
+      }
+
+      const userId = await upsertUser(client, userIdText);
+      const recordedDate = parseDate(value(source, 'RecordedDate'));
+
+      if (!recordedDate) {
+        throw new Error(`Invalid recorded date at row ${row.rowNumber}`);
+      }
+
+      const weightVal = parseNullableNumber(value(source, 'Weight'));
+      const heightVal = parseNullableNumber(value(source, 'Height'));
+      const bmiVal = parseNullableNumber(value(source, 'BMI')) || computeBmi(weightVal, heightVal);
+
+      const sourceHash = hashObject({
+        sheet: BODY_METRICS_SHEET_NAME,
+        row: row.rowNumber,
+        userId: userIdText,
+        recordedDate,
+        weight: weightVal,
+        height: heightVal
+      });
+
+      const result = await upsertBodyMetric(client, {
+        userId,
+        recordedDate,
+        weight: weightVal,
+        height: heightVal,
+        bmi: bmiVal,
+        bodyFatPct: parseNullableNumber(value(source, 'BodyFatPct')),
+        muscleMass: parseNullableNumber(value(source, 'MuscleMass')),
+        waist: parseNullableNumber(value(source, 'Waist')),
+        bpSystolic: parseNullableInt(value(source, 'BpSystolic')),
+        bpDiastolic: parseNullableInt(value(source, 'BpDiastolic')),
+        note: value(source, 'Note'),
+        sourceSheetRow: row.rowNumber,
+        sourceHash
+      });
+
+      stats[result]++;
+    } catch (error) {
+      await insertRowError(client, syncRunId, BODY_METRICS_SHEET_NAME, row.rowNumber, error, row.values);
+    }
+  }
+
+  return stats;
+}
+
+async function upsertBodyMetric(client, data) {
+  const recordedDateObj = data.recordedDate ? new Date(data.recordedDate) : null;
+
+  const existing = await client.bodyMetric.findUnique({
+    where: {
+      body_metrics_unique_user_date: {
+        userId: data.userId,
+        recordedDate: recordedDateObj
+      }
+    },
+    select: { id: true }
+  });
+
+  const metricData = {
+    weight: data.weight,
+    height: data.height,
+    bmi: data.bmi,
+    bodyFatPct: data.bodyFatPct,
+    muscleMass: data.muscleMass,
+    waist: data.waist,
+    bpSystolic: data.bpSystolic,
+    bpDiastolic: data.bpDiastolic,
+    note: data.note || null,
+    sourceSheetRow: data.sourceSheetRow,
+    sourceHash: data.sourceHash,
+    syncedAt: new Date()
+  };
+
+  if (existing) {
+    await client.bodyMetric.update({
+      where: { id: existing.id },
+      data: {
+        ...metricData,
+        updatedAt: new Date()
+      }
+    });
+    return 'rowsUpdated';
+  } else {
+    await client.bodyMetric.create({
+      data: {
+        ...metricData,
+        userId: data.userId,
+        recordedDate: recordedDateObj,
+        createdAt: new Date()
+      }
+    });
+    return 'rowsInserted';
+  }
+}
+
+function computeBmi(weight, height) {
+  if (!weight || !height) return null;
+  const heightM = height > 3 ? height / 100 : height;
+  if (heightM <= 0) return null;
+  return Math.round((weight / (heightM * heightM)) * 100) / 100;
+}
+
+function parseNullableInt(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = parseInt(value, 10);
+  return Number.isFinite(num) ? num : null;
 }
 
 async function createSyncRun(client, startedAt) {
@@ -488,7 +614,7 @@ function mapRow(headers, row, fallbackHeaders) {
 function hasKnownHeader(headers) {
   const normalized = headers.map(normalizeHeader);
 
-  return normalized.includes('userid') || normalized.includes('messageid') || normalized.includes('planname');
+  return normalized.includes('userid') || normalized.includes('messageid') || normalized.includes('planname') || normalized.includes('recordeddate');
 }
 
 function value(source, name) {
@@ -547,6 +673,22 @@ function getLegacyBudgetPaymentHeaders() {
     'Status',
     'CreatedAt',
     'UpdatedAt'
+  ];
+}
+
+function getLegacyBodyMetricsHeaders() {
+  return [
+    'RecordedDate',
+    'UserId',
+    'Weight',
+    'Height',
+    'BMI',
+    'BodyFatPct',
+    'MuscleMass',
+    'Waist',
+    'BpSystolic',
+    'BpDiastolic',
+    'Note'
   ];
 }
 

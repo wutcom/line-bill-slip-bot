@@ -23,6 +23,7 @@ model AppUser {
   transactions   Transaction[]
   receiptFiles   ReceiptFile[]
   budgetPayments BudgetPayment[]
+  bodyMetrics    BodyMetric[]
 
   @@map("app_users")
 }
@@ -136,6 +137,31 @@ model BudgetPayment {
   budgetPlan     BudgetPlan? @relation(fields: [budgetPlanId], references: [id])
 
   @@map("budget_payments")
+}
+
+model BodyMetric {
+  id             BigInt    @id @default(autoincrement())
+  userId         BigInt    @map("user_id")
+  recordedDate   DateTime  @map("recorded_date") @db.Date
+  weight         Decimal?  @db.Decimal(6, 2)
+  height         Decimal?  @db.Decimal(6, 2)
+  bmi            Decimal?  @db.Decimal(5, 2)
+  bodyFatPct     Decimal?  @map("body_fat_pct") @db.Decimal(5, 2)
+  muscleMass     Decimal?  @map("muscle_mass") @db.Decimal(6, 2)
+  waist          Decimal?  @db.Decimal(6, 2)
+  bpSystolic     Int?      @map("bp_systolic")
+  bpDiastolic    Int?      @map("bp_diastolic")
+  note           String?
+  sourceSheetRow Int?      @map("source_sheet_row")
+  sourceHash     String?   @map("source_hash")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  syncedAt       DateTime? @map("synced_at") @db.Timestamptz
+
+  user           AppUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recordedDate], name: "body_metrics_unique_user_date")
+  @@map("body_metrics")
 }
 
 model SyncRun {

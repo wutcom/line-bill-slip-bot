@@ -22,6 +22,7 @@ export interface OverviewData {
   dailyTrend: Array<{
     date: string;
     totalAmount: number;
+    transactionCount: number;
   }>;
   latestSync: {
     status: string;
@@ -30,7 +31,17 @@ export interface OverviewData {
     rows_inserted: number;
     rows_updated: number;
     error_message: string | null;
+    metadata: any;
   } | null;
+  recentTransactions: Array<{
+    id: number;
+    date: string;
+    shopName: string;
+    amount: number;
+    categoryName: string;
+    status: string;
+  }>;
+  totalDbTransactions: number;
 }
 
 export async function getOverview({ userId, month }: { userId?: string | number | null; month?: string | null } = {}): Promise<OverviewData> {
@@ -43,7 +54,7 @@ export async function getOverview({ userId, month }: { userId?: string | number 
 
   const params = [resolvedUserId, bounds.monthStart, bounds.nextMonthStart];
 
-  const [summary, categories, topShops, trend, syncRun] = await Promise.all([
+  const [summary, categories, topShops, trend, syncRun, recent, dbCountResult] = await Promise.all([
     query<{ total_expense: string | number; transaction_count: number; today_expense: string | number }>(
       `SELECT
          COALESCE(SUM(amount), 0) AS total_expense,
@@ -87,9 +98,10 @@ export async function getOverview({ userId, month }: { userId?: string | number 
        LIMIT 5`,
       params
     ),
-    query<{ date: string; total_amount: string | number }>(
+    query<{ date: string; total_amount: string | number; transaction_count: number }>(
       `SELECT transaction_date::text AS date,
-              COALESCE(SUM(amount), 0) AS total_amount
+              COALESCE(SUM(amount), 0) AS total_amount,
+              COUNT(*)::int AS transaction_count
        FROM transactions
        WHERE user_id = $1
          AND transaction_date >= $2::date
@@ -100,11 +112,32 @@ export async function getOverview({ userId, month }: { userId?: string | number 
        ORDER BY transaction_date`,
       params
     ),
-    query<{ status: string; finished_at: Date | string | null; rows_read: number; rows_inserted: number; rows_updated: number; error_message: string | null }>(
-      `SELECT status, finished_at, rows_read, rows_inserted, rows_updated, error_message
+    query<{ status: string; finished_at: Date | string | null; rows_read: number; rows_inserted: number; rows_updated: number; error_message: string | null; metadata: any }>(
+      `SELECT status, finished_at, rows_read, rows_inserted, rows_updated, error_message, metadata
        FROM sync_runs
        ORDER BY started_at DESC
        LIMIT 1`
+    ),
+    query<{ id: number; date: string; shop_name: string; amount: string | number; category_name: string; status: string }>(
+      `SELECT
+         t.id,
+         t.transaction_date::text AS date,
+         COALESCE(t.shop_or_bank_name, '-') AS shop_name,
+         t.amount,
+         COALESCE(c.name, t.category_text, 'Other') AS category_name,
+         t.status
+       FROM transactions t
+       LEFT JOIN categories c ON c.id = t.category_id
+       WHERE t.user_id = $1
+         AND t.transaction_date >= $2::date
+         AND t.transaction_date < $3::date
+         AND t.status = 'confirmed'
+       ORDER BY t.transaction_date DESC, t.created_at DESC
+       LIMIT 5`,
+      params
+    ),
+    query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM transactions`
     )
   ]);
 
@@ -139,9 +172,19 @@ export async function getOverview({ userId, month }: { userId?: string | number 
     })),
     dailyTrend: trend.rows.map((row) => ({
       date: row.date,
-      totalAmount: Number(row.total_amount || 0)
+      totalAmount: Number(row.total_amount || 0),
+      transactionCount: Number(row.transaction_count || 0)
     })),
-    latestSync: syncRun.rows[0] || null
+    latestSync: syncRun.rows[0] || null,
+    recentTransactions: recent.rows.map((row) => ({
+      id: row.id,
+      date: row.date,
+      shopName: row.shop_name,
+      amount: Number(row.amount || 0),
+      categoryName: row.category_name,
+      status: row.status
+    })),
+    totalDbTransactions: Number(dbCountResult.rows[0]?.count || 0)
   };
 }
 
@@ -157,7 +200,9 @@ function emptyOverview(month: string): OverviewData {
     spendingByCategory: [],
     topShops: [],
     dailyTrend: [],
-    latestSync: null
+    latestSync: null,
+    recentTransactions: [],
+    totalDbTransactions: 0
   };
 }
 
