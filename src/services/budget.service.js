@@ -35,9 +35,10 @@ async function addBudgetPlan(userId, text) {
   const month = getCurrentPlanMonthKey();
   const now = new Date().toISOString();
 
-  await appendRows(BUDGET_SHEET_NAME, 'A:I', [[
+  await appendRows(BUDGET_SHEET_NAME, 'A:J', [[
     month,
     userId,
+    '',
     planName,
     planAmount,
     0,
@@ -61,7 +62,7 @@ async function getCurrentMonthPlans(userId) {
   const plans = rows.slice(1).filter(row =>
     row[0] === month &&
     row[1] === userId &&
-    row[6] !== 'Inactive'
+    row[7] !== 'Inactive'
   );
 
   if (plans.length === 0) {
@@ -73,10 +74,10 @@ async function getCurrentMonthPlans(userId) {
   let totalRemaining = 0;
 
   const planText = plans.map((row, index) => {
-    const planName = row[2] || '-';
-    const planAmount = parseAmount(row[3]);
-    const paidAmount = parseAmount(row[4]);
-    const remaining = parseAmount(row[5]);
+    const planName = row[3] || '-';
+    const planAmount = parseAmount(row[4]);
+    const paidAmount = parseAmount(row[5]);
+    const remaining = parseAmount(row[6]);
 
     totalPlan += planAmount;
     totalPaid += paidAmount;
@@ -104,7 +105,7 @@ async function getRemainingPlans(userId) {
   const plans = rows.slice(1).filter(row =>
     row[0] === month &&
     row[1] === userId &&
-    row[6] !== 'Inactive'
+    row[7] !== 'Inactive'
   );
 
   if (plans.length === 0) {
@@ -114,8 +115,8 @@ async function getRemainingPlans(userId) {
   let totalRemaining = 0;
 
   const text = plans.map((row, index) => {
-    const planName = row[2] || '-';
-    const remaining = parseAmount(row[5]);
+    const planName = row[3] || '-';
+    const remaining = parseAmount(row[6]);
 
     totalRemaining += remaining;
 
@@ -138,7 +139,7 @@ async function copyPreviousMonthPlans(userId) {
   const currentPlans = rows.slice(1).filter(row =>
     row[0] === currentMonth &&
     row[1] === userId &&
-    row[6] !== 'Inactive'
+    row[7] !== 'Inactive'
   );
 
   if (currentPlans.length > 0) {
@@ -148,7 +149,7 @@ async function copyPreviousMonthPlans(userId) {
   const previousPlans = rows.slice(1).filter(row =>
     row[0] === previousMonth &&
     row[1] === userId &&
-    row[6] !== 'Inactive'
+    row[7] !== 'Inactive'
   );
 
   if (previousPlans.length === 0) {
@@ -158,12 +159,14 @@ async function copyPreviousMonthPlans(userId) {
   const now = new Date().toISOString();
 
   const values = previousPlans.map(row => {
-    const planName = row[2] || '';
-    const planAmount = parseAmount(row[3]);
+    const category = row[2] || '';
+    const planName = row[3] || '';
+    const planAmount = parseAmount(row[4]);
 
     return [
       currentMonth,
       userId,
+      category,
       planName,
       planAmount,
       0,
@@ -174,7 +177,7 @@ async function copyPreviousMonthPlans(userId) {
     ];
   });
 
-  await appendRows(BUDGET_SHEET_NAME, 'A:I', values);
+  await appendRows(BUDGET_SHEET_NAME, 'A:J', values);
 
   return `copy แผนเดือนก่อนเรียบร้อยครับ
 
@@ -214,7 +217,7 @@ async function markPlanPaid(userId, text) {
     paymentId,
     month,
     userId,
-    plan.row[2] || planName,
+    plan.row[3] || planName,
     inputAmount,
     now.slice(0, 10),
     note,
@@ -223,13 +226,13 @@ async function markPlanPaid(userId, text) {
     now
   ]]);
 
-  const paidAmount = await calculatePaidFromBudgetPayments(userId, month, plan.row[2] || planName);
+  const paidAmount = await calculatePaidFromBudgetPayments(userId, month, plan.row[3] || planName);
   const { planAmount, remaining } = await updateBudgetPlanTotals(rows, plan, paidAmount);
 
   return `บันทึกการจ่ายเรียบร้อยครับ
 
 PaymentId: ${paymentId}
-แผน: ${plan.row[2] || planName}
+แผน: ${plan.row[3] || planName}
 เดือนแผน: ${month}
 จ่ายครั้งนี้: ${formatMoney(inputAmount)} บาท
 จ่ายแล้วรวม: ${formatMoney(paidAmount)} บาท
@@ -346,8 +349,8 @@ function findPlan(rows, userId, month, planName) {
     index > 0 &&
     row[0] === month &&
     row[1] === userId &&
-    normalizeText(row[2]) === normalizeText(planName) &&
-    row[6] !== 'Inactive'
+    normalizeText(row[3]) === normalizeText(planName) &&
+    row[7] !== 'Inactive'
   );
 
   if (rowIndex < 0) return null;
@@ -360,16 +363,16 @@ function findPlan(rows, userId, month, planName) {
 
 async function updateBudgetPlanTotals(rows, plan, paidAmount) {
   const row = plan.row;
-  const planAmount = parseAmount(row[3]);
+  const planAmount = parseAmount(row[4]);
   const remaining = Math.max(planAmount - paidAmount, 0);
   const now = new Date().toISOString();
   const sheetRowNumber = plan.rowIndex + 1;
 
-  await updateRows(BUDGET_SHEET_NAME, `E${sheetRowNumber}:I${sheetRowNumber}`, [[
+  await updateRows(BUDGET_SHEET_NAME, `F${sheetRowNumber}:J${sheetRowNumber}`, [[
     paidAmount,
     remaining,
     remaining <= 0 ? 'Paid' : 'Active',
-    row[7] || now,
+    row[8] || now,
     now
   ]]);
 

@@ -49,7 +49,7 @@ export async function getBudgetPlans({ userId, month }: { userId?: string | numb
        bp.status,
        COALESCE(c.name, 'Unmapped') AS category_name,
        COALESCE(SUM(bpmt.amount) FILTER (WHERE bpmt.status = 'active'), 0) AS paid_amount,
-       COUNT(bpmt.id) FILTER (WHERE bpmt.status = 'active') AS payment_count
+       COUNT(bpmt.payment_id) FILTER (WHERE bpmt.status = 'active') AS payment_count
      FROM budget_plans bp
      LEFT JOIN categories c
        ON c.id = bp.category_id
