@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: line_bill_slip
+      POSTGRES_USER: line_bot
+      POSTGRES_PASSWORD: line_bot_password
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database-schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U line_bot -d line_bill_slip"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    build:
+      context: .
+      target: bot
+    env_file:
+      - .env
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://line_bot:line_bot_password@postgres:5432/line_bill_slip
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      target: dashboard
+    env_file:
+      - .env
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgresql://line_bot:line_bot_password@postgres:5432/line_bill_slip
+      NEXT_PUBLIC_APP_NAME: Expense Dashboard
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  python-analysis:
+    build:
+      context: .
+      target: python-api
+    env_file:
+      - .env
+    environment:
+      PYTHON_ANALYSIS_API_HOST: 0.0.0.0
+      PYTHON_ANALYSIS_API_PORT: 8000
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

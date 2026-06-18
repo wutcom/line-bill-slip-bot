@@ -1,38 +1,20 @@
-import { Pool, QueryResult, QueryResultRow } from 'pg';
+import { PrismaClient } from '@prisma/client';
 
-let pool: Pool | undefined;
+const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-function getDatabaseUrl(): string {
-  const databaseUrl = process.env.DATABASE_URL;
+export const prisma =
+  globalForPrisma.prisma ||
+  new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  });
 
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL is required for the dashboard');
-  }
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
-  return databaseUrl;
+export interface QueryResult<T> {
+  rows: T[];
 }
 
-function shouldUseSsl(databaseUrl: string): boolean {
-  return databaseUrl.includes('sslmode=require') || databaseUrl.includes('render.com');
+export async function query<T = any>(text: string, params: any[] = []): Promise<QueryResult<T>> {
+  const rows = await prisma.$queryRawUnsafe<T[]>(text, ...params);
+  return { rows };
 }
-
-function getPool(): Pool {
-  if (!pool) {
-    const connectionString = getDatabaseUrl();
-
-    pool = new Pool({
-      connectionString,
-      ssl: shouldUseSsl(connectionString)
-        ? { rejectUnauthorized: false }
-        : undefined
-    });
-  }
-
-  return pool;
-}
-
-export async function query<T extends QueryResultRow = any>(text: string, params: any[] = []): Promise<QueryResult<T>> {
-  return getPool().query<T>(text, params);
-}
-
-

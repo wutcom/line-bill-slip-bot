@@ -1,59 +1,47 @@
-const { Pool } = require('pg');
+const { PrismaClient } = require('@prisma/client');
 
-let pool;
+let prisma;
 
-function getDatabaseUrl() {
-  const databaseUrl = process.env.DATABASE_URL;
-
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL is required');
-  }
-
-  return databaseUrl;
-}
-
-function getPool() {
-  if (!pool) {
-    pool = new Pool({
-      connectionString: getDatabaseUrl(),
-      ssl: {
-        rejectUnauthorized: false
-      }
+function getPrisma() {
+  if (!prisma) {
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+      throw new Error('DATABASE_URL is required');
+    }
+    prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: databaseUrl,
+        },
+      },
     });
   }
-
-  return pool;
+  return prisma;
 }
 
 async function query(text, params = []) {
-  return getPool().query(text, params);
+  const rows = await getPrisma().$queryRawUnsafe(text, ...params);
+  return { rows };
 }
 
 async function withTransaction(work) {
-  const client = await getPool().connect();
-
-  try {
-    await client.query('BEGIN');
-    const result = await work(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  return getPrisma().$transaction(async (tx) => {
+    tx.query = async (text, params = []) => {
+      const rows = await tx.$queryRawUnsafe(text, ...params);
+      return { rows };
+    };
+    return work(tx);
+  });
 }
 
 async function closePool() {
-  if (!pool) return;
-
-  await pool.end();
-  pool = null;
+  if (!prisma) return;
+  await prisma.$disconnect();
+  prisma = null;
 }
 
 module.exports = {
-  getPool,
+  getPrisma,
   query,
   withTransaction,
   closePool

@@ -1,0 +1,169 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client_bot {
+  provider = "prisma-client-js"
+}
+
+generator client_dashboard {
+  provider = "prisma-client-js"
+  output   = "../dashboard/node_modules/.prisma/client"
+}
+
+model AppUser {
+  id             BigInt          @id @default(autoincrement())
+  lineUserId     String          @unique @map("line_user_id")
+  displayName    String?         @map("display_name")
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  budgetPlans    BudgetPlan[]
+  transactions   Transaction[]
+  receiptFiles   ReceiptFile[]
+  budgetPayments BudgetPayment[]
+
+  @@map("app_users")
+}
+
+model Category {
+  id           BigInt        @id @default(autoincrement())
+  code         String        @unique
+  name         String
+  categoryType String        @default("expense") @map("category_type")
+  isActive     Boolean       @default(true) @map("is_active")
+  sortOrder    Int           @default(0) @map("sort_order")
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  budgetPlans  BudgetPlan[]
+  transactions Transaction[]
+
+  @@map("categories")
+}
+
+model BudgetPlan {
+  id             BigInt          @id @default(autoincrement())
+  planId         String          @default(dbgenerated("gen_random_uuid()")) @map("plan_id") @db.Uuid
+  userId         BigInt          @map("user_id")
+  planMonth      DateTime        @map("plan_month") @db.Date
+  planName       String          @map("plan_name")
+  categoryId     BigInt?         @map("category_id")
+  planAmount     Decimal         @default(0) @map("plan_amount") @db.Decimal(18, 2)
+  status         String          @default("active")
+  remark         String?
+  sourceSheetRow Int?            @map("source_sheet_row")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  
+  user           AppUser         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category       Category?       @relation(fields: [categoryId], references: [id])
+  budgetPayments BudgetPayment[]
+
+  @@unique([userId, planMonth, planName], name: "unique_user_month_name")
+  @@map("budget_plans")
+}
+
+model Transaction {
+  id              BigInt        @id @default(autoincrement())
+  transactionId   String        @default(dbgenerated("gen_random_uuid()")) @map("transaction_id") @db.Uuid
+  userId          BigInt        @map("user_id")
+  lineMessageId   String?       @map("line_message_id")
+  documentType    String?       @map("document_type")
+  expenseType     String        @default("expense") @map("expense_type")
+  shopOrBankName  String?       @map("shop_or_bank_name")
+  amount          Decimal       @default(0) @db.Decimal(18, 2)
+  transactionDate DateTime?     @map("transaction_date") @db.Date
+  referenceNo     String?       @map("reference_no")
+  categoryId      BigInt?       @map("category_id")
+  categoryText    String?       @map("category_text")
+  description     String?
+  rawText         String?       @map("raw_text")
+  imageFileId     String?       @map("image_file_id")
+  imageUrl        String?       @map("image_url")
+  imageStoredAt   DateTime?     @map("image_stored_at") @db.Timestamptz
+  ocrConfidence   Decimal?      @map("ocr_confidence") @db.Decimal(5, 4)
+  status          String        @default("confirmed")
+  sourceSheetRow  Int?          @map("source_sheet_row")
+  sourceHash      String?       @map("source_hash")
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  syncedAt        DateTime?     @map("synced_at") @db.Timestamptz
+
+  user            AppUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category        Category?     @relation(fields: [categoryId], references: [id])
+  receiptFiles    ReceiptFile[]
+
+  @@unique([userId, lineMessageId], name: "unique_user_message")
+  @@map("transactions")
+}
+
+model ReceiptFile {
+  id            BigInt       @id @default(autoincrement())
+  userId        BigInt       @map("user_id")
+  transactionId BigInt?      @map("transaction_id")
+  lineMessageId String?      @map("line_message_id")
+  driveFileId   String       @unique @map("drive_file_id")
+  driveUrl      String?      @map("drive_url")
+  fileName      String?      @map("file_name")
+  mimeType      String?      @map("mime_type")
+  fileSizeBytes BigInt?      @map("file_size_bytes")
+  storedAt      DateTime     @default(now()) @map("stored_at") @db.Timestamptz
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  user          AppUser      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@map("receipt_files")
+}
+
+model BudgetPayment {
+  paymentId      String     @id @map("payment_id")
+  userId         BigInt     @map("user_id")
+  budgetPlanId   BigInt?    @map("budget_plan_id")
+  planMonth      DateTime   @map("plan_month") @db.Date
+  planName       String     @map("plan_name")
+  amount         Decimal    @default(0) @db.Decimal(18, 2)
+  paymentDate    DateTime?  @map("payment_date") @db.Date
+  note           String?
+  status         String     @default("active")
+  sourceSheetRow Int?       @map("source_sheet_row")
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  syncedAt       DateTime?  @map("synced_at") @db.Timestamptz
+
+  user           AppUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budgetPlan     BudgetPlan? @relation(fields: [budgetPlanId], references: [id])
+
+  @@map("budget_payments")
+}
+
+model SyncRun {
+  id            BigInt         @id @default(autoincrement())
+  jobName       String         @map("job_name")
+  startedAt     DateTime       @default(now()) @map("started_at") @db.Timestamptz
+  finishedAt    DateTime?      @map("finished_at") @db.Timestamptz
+  status        String         @default("running")
+  rowsRead      Int            @default(0) @map("rows_read")
+  rowsInserted  Int            @default(0) @map("rows_inserted")
+  rowsUpdated   Int            @default(0) @map("rows_updated")
+  errorMessage  String?        @map("error_message")
+  metadata      Json?
+  syncRowErrors SyncRowError[]
+
+  @@map("sync_runs")
+}
+
+model SyncRowError {
+  id           BigInt   @id @default(autoincrement())
+  syncRunId    BigInt   @map("sync_run_id")
+  sheetName    String   @map("sheet_name")
+  sheetRow     Int?     @map("sheet_row")
+  errorMessage String   @map("error_message")
+  rawData      Json?    @map("raw_data")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  syncRun      SyncRun  @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+
+  @@map("sync_row_errors")
+}

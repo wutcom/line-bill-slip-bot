@@ -49,9 +49,14 @@ async function main() {
         budgetPaymentStats
       });
     } catch (error) {
-      await finishSyncRun(client, syncRunId, 'failed', {
-        errorMessage: error.message
-      });
+      console.error('Original sync error occurred:', error);
+      try {
+        await finishSyncRun(client, syncRunId, 'failed', {
+          errorMessage: error.message
+        });
+      } catch (finishError) {
+        console.error('Failed to record finishSyncRun due to transaction abort:', finishError);
+      }
 
       throw error;
     }
@@ -113,6 +118,7 @@ async function syncTransactions(client, categoryMap, syncRunId) {
       const result = await upsertTransaction(client, data);
       stats[result]++;
     } catch (error) {
+      console.error('upsertTransaction error:', error);
       await insertRowError(client, syncRunId, TRANSACTION_SHEET_NAME, row.rowNumber, error, row.values);
     }
   }
@@ -214,275 +220,242 @@ async function syncBudgetPayments(client, syncRunId) {
 }
 
 async function createSyncRun(client, startedAt) {
-  const result = await client.query(
-    `INSERT INTO sync_runs (job_name, started_at, status)
-     VALUES ($1, $2, 'running')
-     RETURNING id`,
-    ['google-sheet-to-postgres', startedAt]
-  );
+  const run = await client.syncRun.create({
+    data: {
+      jobName: 'google-sheet-to-postgres',
+      startedAt: startedAt,
+      status: 'running'
+    }
+  });
 
-  return result.rows[0].id;
+  return run.id;
 }
 
 async function finishSyncRun(client, syncRunId, status, data = {}) {
-  await client.query(
-    `UPDATE sync_runs
-     SET finished_at = NOW(),
-         status = $2,
-         rows_read = COALESCE($3, rows_read),
-         rows_inserted = COALESCE($4, rows_inserted),
-         rows_updated = COALESCE($5, rows_updated),
-         error_message = $6,
-         metadata = COALESCE($7, metadata)
-     WHERE id = $1`,
-    [
-      syncRunId,
+  await client.syncRun.update({
+    where: { id: syncRunId },
+    data: {
+      finishedAt: new Date(),
       status,
-      data.rowsRead ?? null,
-      data.rowsInserted ?? null,
-      data.rowsUpdated ?? null,
-      data.errorMessage ?? null,
-      data.metadata ? JSON.stringify(data.metadata) : null
-    ]
-  );
+      rowsRead: data.rowsRead !== undefined ? data.rowsRead : undefined,
+      rowsInserted: data.rowsInserted !== undefined ? data.rowsInserted : undefined,
+      rowsUpdated: data.rowsUpdated !== undefined ? data.rowsUpdated : undefined,
+      errorMessage: data.errorMessage !== undefined ? data.errorMessage : undefined,
+      metadata: data.metadata !== undefined ? data.metadata : undefined
+    }
+  });
 }
 
 async function insertRowError(client, syncRunId, sheetName, sheetRow, error, rawData) {
-  await client.query(
-    `INSERT INTO sync_row_errors (sync_run_id, sheet_name, sheet_row, error_message, raw_data)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [syncRunId, sheetName, sheetRow, error.message, JSON.stringify(rawData)]
-  );
+  await client.syncRowError.create({
+    data: {
+      syncRunId,
+      sheetName,
+      sheetRow,
+      errorMessage: error.message,
+      rawData: rawData ? JSON.parse(JSON.stringify(rawData)) : null
+    }
+  });
 }
 
 async function loadCategoryMap(client) {
-  const result = await client.query('SELECT id, code FROM categories WHERE is_active = TRUE');
+  const categories = await client.category.findMany({
+    where: { isActive: true },
+    select: { id: true, code: true }
+  });
 
-  return result.rows.reduce((map, row) => {
-    map[row.code] = row.id;
+  return categories.reduce((map, cat) => {
+    map[cat.code] = cat.id;
     return map;
   }, {});
 }
 
 async function upsertUser(client, lineUserId) {
-  const result = await client.query(
-    `INSERT INTO app_users (line_user_id)
-     VALUES ($1)
-     ON CONFLICT (line_user_id) DO UPDATE
-     SET updated_at = NOW()
-     RETURNING id`,
-    [lineUserId]
-  );
+  const user = await client.appUser.upsert({
+    where: { lineUserId },
+    update: { updatedAt: new Date() },
+    create: { lineUserId }
+  });
 
-  return result.rows[0].id;
+  return user.id;
 }
 
 async function upsertTransaction(client, data) {
+  const transactionData = {
+    documentType: data.documentType || null,
+    expenseType: data.expenseType,
+    shopOrBankName: data.shopOrBankName || null,
+    amount: data.amount,
+    transactionDate: data.transactionDate ? new Date(data.transactionDate) : null,
+    referenceNo: data.referenceNo || null,
+    categoryId: data.categoryId || null,
+    categoryText: data.categoryText || null,
+    description: data.description || null,
+    rawText: data.rawText || null,
+    imageFileId: data.imageFileId || null,
+    imageUrl: data.imageUrl || null,
+    imageStoredAt: data.imageStoredAt || null,
+    ocrConfidence: data.ocrConfidence || null,
+    status: data.status,
+    sourceSheetRow: data.sourceSheetRow,
+    sourceHash: data.sourceHash,
+    syncedAt: new Date()
+  };
+
   if (data.lineMessageId) {
-    const result = await client.query(
-      `INSERT INTO transactions (
-         user_id, line_message_id, document_type, expense_type, shop_or_bank_name,
-         amount, transaction_date, reference_no, category_id, category_text,
-         description, raw_text, image_file_id, image_url, image_stored_at,
-         ocr_confidence, status, source_sheet_row, source_hash, created_at, synced_at
-       )
-       VALUES (
-         $1, $2, $3, $4, $5,
-         $6, $7, $8, $9, $10,
-         $11, $12, $13, $14, $15,
-         $16, $17, $18, $19, $20, NOW()
-       )
-       ON CONFLICT (user_id, line_message_id) DO UPDATE
-       SET document_type = EXCLUDED.document_type,
-           expense_type = EXCLUDED.expense_type,
-           shop_or_bank_name = EXCLUDED.shop_or_bank_name,
-           amount = EXCLUDED.amount,
-           transaction_date = EXCLUDED.transaction_date,
-           reference_no = EXCLUDED.reference_no,
-           category_id = EXCLUDED.category_id,
-           category_text = EXCLUDED.category_text,
-           description = EXCLUDED.description,
-           raw_text = EXCLUDED.raw_text,
-           image_file_id = EXCLUDED.image_file_id,
-           image_url = EXCLUDED.image_url,
-           image_stored_at = EXCLUDED.image_stored_at,
-           ocr_confidence = EXCLUDED.ocr_confidence,
-           status = EXCLUDED.status,
-           source_sheet_row = EXCLUDED.source_sheet_row,
-           source_hash = EXCLUDED.source_hash,
-           updated_at = NOW(),
-           synced_at = NOW()
-       RETURNING (xmax = 0) AS inserted`,
-      buildTransactionParams(data)
-    );
+    const existing = await client.transaction.findUnique({
+      where: {
+        unique_user_message: {
+          userId: data.userId,
+          lineMessageId: data.lineMessageId
+        }
+      },
+      select: { id: true }
+    });
 
-    return result.rows[0].inserted ? 'rowsInserted' : 'rowsUpdated';
+    if (existing) {
+      await client.transaction.update({
+        where: { id: existing.id },
+        data: {
+          ...transactionData,
+          updatedAt: new Date()
+        }
+      });
+      return 'rowsUpdated';
+    } else {
+      await client.transaction.create({
+        data: {
+          ...transactionData,
+          userId: data.userId,
+          lineMessageId: data.lineMessageId,
+          createdAt: data.createdAt || new Date()
+        }
+      });
+      return 'rowsInserted';
+    }
   }
 
-  const existing = await client.query(
-    `SELECT id FROM transactions
-     WHERE user_id = $1 AND source_hash = $2
-     LIMIT 1`,
-    [data.userId, data.sourceHash]
-  );
+  const existing = await client.transaction.findFirst({
+    where: {
+      userId: data.userId,
+      sourceHash: data.sourceHash
+    },
+    select: { id: true }
+  });
 
-  if (existing.rowCount > 0) {
-    await client.query(
-      `UPDATE transactions
-       SET document_type = $2,
-           expense_type = $3,
-           shop_or_bank_name = $4,
-           amount = $5,
-           transaction_date = $6,
-           reference_no = $7,
-           category_id = $8,
-           category_text = $9,
-           description = $10,
-           raw_text = $11,
-           image_file_id = $12,
-           image_url = $13,
-           image_stored_at = $14,
-           ocr_confidence = $15,
-           status = $16,
-           source_sheet_row = $17,
-           source_hash = $18,
-           updated_at = NOW(),
-           synced_at = NOW()
-       WHERE id = $1`,
-      [existing.rows[0].id, ...buildTransactionParams(data).slice(2, 19)]
-    );
-
+  if (existing) {
+    await client.transaction.update({
+      where: { id: existing.id },
+      data: {
+        ...transactionData,
+        updatedAt: new Date()
+      }
+    });
     return 'rowsUpdated';
+  } else {
+    await client.transaction.create({
+      data: {
+        ...transactionData,
+        userId: data.userId,
+        createdAt: data.createdAt || new Date()
+      }
+    });
+    return 'rowsInserted';
   }
-
-  await client.query(
-    `INSERT INTO transactions (
-       user_id, line_message_id, document_type, expense_type, shop_or_bank_name,
-       amount, transaction_date, reference_no, category_id, category_text,
-       description, raw_text, image_file_id, image_url, image_stored_at,
-       ocr_confidence, status, source_sheet_row, source_hash, created_at, synced_at
-     )
-     VALUES (
-       $1, $2, $3, $4, $5,
-       $6, $7, $8, $9, $10,
-       $11, $12, $13, $14, $15,
-       $16, $17, $18, $19, $20, NOW()
-     )`,
-    buildTransactionParams(data)
-  );
-
-  return 'rowsInserted';
-}
-
-function buildTransactionParams(data) {
-  return [
-    data.userId,
-    data.lineMessageId || null,
-    data.documentType || null,
-    data.expenseType,
-    data.shopOrBankName || null,
-    data.amount,
-    data.transactionDate,
-    data.referenceNo || null,
-    data.categoryId || null,
-    data.categoryText || null,
-    data.description || null,
-    data.rawText || null,
-    data.imageFileId || null,
-    data.imageUrl || null,
-    data.imageStoredAt,
-    data.ocrConfidence,
-    data.status,
-    data.sourceSheetRow,
-    data.sourceHash,
-    data.createdAt
-  ];
 }
 
 async function upsertBudgetPlan(client, data) {
-  const result = await client.query(
-    `INSERT INTO budget_plans (
-       user_id, plan_month, plan_name, category_id, plan_amount,
-       status, remark, source_sheet_row, created_at, updated_at
-     )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-     ON CONFLICT (user_id, plan_month, plan_name) DO UPDATE
-     SET category_id = EXCLUDED.category_id,
-         plan_amount = EXCLUDED.plan_amount,
-         status = EXCLUDED.status,
-         remark = EXCLUDED.remark,
-         source_sheet_row = EXCLUDED.source_sheet_row,
-         updated_at = NOW()
-     RETURNING (xmax = 0) AS inserted`,
-    [
-      data.userId,
-      data.planMonth,
-      data.planName,
-      data.categoryId,
-      data.planAmount,
-      data.status,
-      data.remark || null,
-      data.sourceSheetRow,
-      data.createdAt,
-      data.updatedAt
-    ]
-  );
+  const planMonthDate = data.planMonth ? new Date(data.planMonth) : null;
+  
+  const existing = await client.budgetPlan.findUnique({
+    where: {
+      unique_user_month_name: {
+        userId: data.userId,
+        planMonth: planMonthDate,
+        planName: data.planName
+      }
+    },
+    select: { id: true }
+  });
 
-  return result.rows[0].inserted ? 'rowsInserted' : 'rowsUpdated';
+  const planData = {
+    categoryId: data.categoryId || null,
+    planAmount: data.planAmount,
+    status: data.status,
+    remark: data.remark || null,
+    sourceSheetRow: data.sourceSheetRow,
+    updatedAt: data.updatedAt || new Date()
+  };
+
+  if (existing) {
+    await client.budgetPlan.update({
+      where: { id: existing.id },
+      data: planData
+    });
+    return 'rowsUpdated';
+  } else {
+    await client.budgetPlan.create({
+      data: {
+        ...planData,
+        userId: data.userId,
+        planMonth: planMonthDate,
+        planName: data.planName,
+        createdAt: data.createdAt || new Date()
+      }
+    });
+    return 'rowsInserted';
+  }
 }
 
 async function findBudgetPlanId(client, userId, planMonth, planName) {
-  const result = await client.query(
-    `SELECT id
-     FROM budget_plans
-     WHERE user_id = $1
-       AND plan_month = $2
-       AND plan_name = $3
-     LIMIT 1`,
-    [userId, planMonth, planName]
-  );
+  const plan = await client.budgetPlan.findFirst({
+    where: {
+      userId,
+      planMonth: planMonth ? new Date(planMonth) : undefined,
+      planName
+    },
+    select: { id: true }
+  });
 
-  return result.rows[0]?.id || null;
+  return plan?.id || null;
 }
 
 async function upsertBudgetPayment(client, data) {
-  const result = await client.query(
-    `INSERT INTO budget_payments (
-       payment_id, user_id, budget_plan_id, plan_month, plan_name,
-       amount, payment_date, note, status, source_sheet_row,
-       created_at, updated_at, synced_at
-     )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-     ON CONFLICT (payment_id) DO UPDATE
-     SET user_id = EXCLUDED.user_id,
-         budget_plan_id = EXCLUDED.budget_plan_id,
-         plan_month = EXCLUDED.plan_month,
-         plan_name = EXCLUDED.plan_name,
-         amount = EXCLUDED.amount,
-         payment_date = EXCLUDED.payment_date,
-         note = EXCLUDED.note,
-         status = EXCLUDED.status,
-         source_sheet_row = EXCLUDED.source_sheet_row,
-         updated_at = NOW(),
-         synced_at = NOW()
-     RETURNING (xmax = 0) AS inserted`,
-    [
-      data.paymentId,
-      data.userId,
-      data.budgetPlanId,
-      data.planMonth,
-      data.planName,
-      data.amount,
-      data.paymentDate,
-      data.note || null,
-      data.status,
-      data.sourceSheetRow,
-      data.createdAt,
-      data.updatedAt
-    ]
-  );
+  const existing = await client.budgetPayment.findUnique({
+    where: { paymentId: data.paymentId },
+    select: { paymentId: true }
+  });
 
-  return result.rows[0].inserted ? 'rowsInserted' : 'rowsUpdated';
+  const paymentData = {
+    userId: data.userId,
+    budgetPlanId: data.budgetPlanId || null,
+    planMonth: data.planMonth ? new Date(data.planMonth) : null,
+    planName: data.planName,
+    amount: data.amount,
+    paymentDate: data.paymentDate ? new Date(data.paymentDate) : null,
+    note: data.note || null,
+    status: data.status,
+    sourceSheetRow: data.sourceSheetRow,
+    updatedAt: data.updatedAt || new Date(),
+    syncedAt: new Date()
+  };
+
+  if (existing) {
+    await client.budgetPayment.update({
+      where: { paymentId: data.paymentId },
+      data: paymentData
+    });
+    return 'rowsUpdated';
+  } else {
+    await client.budgetPayment.create({
+      data: {
+        ...paymentData,
+        paymentId: data.paymentId,
+        createdAt: data.createdAt || new Date()
+      }
+    });
+    return 'rowsInserted';
+  }
 }
 
 function parseSheetRows(rows) {

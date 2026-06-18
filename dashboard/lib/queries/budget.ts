@@ -58,7 +58,7 @@ export async function getBudgetPlans({ userId, month }: { userId?: string | numb
       AND bpmt.plan_month = bp.plan_month
       AND bpmt.plan_name = bp.plan_name
      WHERE bp.user_id = $1
-       AND bp.plan_month = $2
+       AND bp.plan_month = $2::date
        AND bp.status IN ('active', 'paid')
      GROUP BY bp.id, bp.plan_name, bp.plan_amount, bp.status, c.name
      ORDER BY bp.plan_name`,

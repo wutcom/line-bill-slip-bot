@@ -51,8 +51,8 @@ export async function getOverview({ userId, month }: { userId?: string | number 
          COALESCE(SUM(amount) FILTER (WHERE transaction_date = CURRENT_DATE), 0) AS today_expense
        FROM transactions
        WHERE user_id = $1
-         AND transaction_date >= $2
-         AND transaction_date < $3
+         AND transaction_date >= $2::date
+         AND transaction_date < $3::date
          AND status = 'confirmed'
          AND expense_type = 'expense'`,
       params
@@ -63,8 +63,8 @@ export async function getOverview({ userId, month }: { userId?: string | number 
        FROM transactions t
        LEFT JOIN categories c ON c.id = t.category_id
        WHERE t.user_id = $1
-         AND t.transaction_date >= $2
-         AND t.transaction_date < $3
+         AND t.transaction_date >= $2::date
+         AND t.transaction_date < $3::date
          AND t.status = 'confirmed'
          AND t.expense_type = 'expense'
        GROUP BY COALESCE(c.name, t.category_text, 'Other')
@@ -78,8 +78,8 @@ export async function getOverview({ userId, month }: { userId?: string | number 
               COUNT(*)::int AS transaction_count
        FROM transactions
        WHERE user_id = $1
-         AND transaction_date >= $2
-         AND transaction_date < $3
+         AND transaction_date >= $2::date
+         AND transaction_date < $3::date
          AND status = 'confirmed'
          AND expense_type = 'expense'
        GROUP BY COALESCE(shop_or_bank_name, '-')
@@ -92,8 +92,8 @@ export async function getOverview({ userId, month }: { userId?: string | number 
               COALESCE(SUM(amount), 0) AS total_amount
        FROM transactions
        WHERE user_id = $1
-         AND transaction_date >= $2
-         AND transaction_date < $3
+         AND transaction_date >= $2::date
+         AND transaction_date < $3::date
          AND status = 'confirmed'
          AND expense_type = 'expense'
        GROUP BY transaction_date
@@ -112,7 +112,7 @@ export async function getOverview({ userId, month }: { userId?: string | number 
     `SELECT COALESCE(SUM(plan_amount), 0) AS total_budget
      FROM budget_plans
      WHERE user_id = $1
-       AND plan_month = $2
+       AND plan_month = $2::date
        AND status = 'active'`,
     [resolvedUserId, bounds.monthStart]
   );

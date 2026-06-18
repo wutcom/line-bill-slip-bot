@@ -52,8 +52,8 @@ export async function getCategoryAnalytics({ userId, month }: { userId?: string 
      FROM transactions t
      LEFT JOIN categories c ON c.id = t.category_id
      WHERE t.user_id = $1
-       AND t.transaction_date >= $2
-       AND t.transaction_date < $3
+       AND t.transaction_date >= $2::date
+       AND t.transaction_date < $3::date
        AND t.status = 'confirmed'
        AND t.expense_type = 'expense'
      GROUP BY COALESCE(c.code, lower(t.category_text), 'other'), COALESCE(c.name, t.category_text, 'Other')
@@ -74,7 +74,7 @@ export async function getCategoryAnalytics({ userId, month }: { userId?: string 
      LEFT JOIN categories c ON c.id = t.category_id
      WHERE t.user_id = $1
        AND t.transaction_date >= ($2::date - interval '5 months')
-       AND t.transaction_date < $3
+       AND t.transaction_date < $3::date
        AND t.status = 'confirmed'
        AND t.expense_type = 'expense'
      GROUP BY date_trunc('month', t.transaction_date), COALESCE(c.name, t.category_text, 'Other')

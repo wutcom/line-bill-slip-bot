@@ -58,8 +58,8 @@ export async function getTransactions({
 
   const where = [
     't.user_id = $1',
-    't.transaction_date >= $2',
-    't.transaction_date < $3'
+    't.transaction_date >= $2::date',
+    't.transaction_date < $3::date'
   ];
   const params: any[] = [resolvedUserId, bounds.monthStart, bounds.nextMonthStart];
 
