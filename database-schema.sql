@@ -213,4 +213,23 @@ CREATE INDEX IF NOT EXISTS idx_food_logs_log_date
 CREATE INDEX IF NOT EXISTS idx_food_logs_source_row_id
   ON food_logs (source_row_id);
 
+CREATE TABLE IF NOT EXISTS budget_payments (
+  payment_id TEXT PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  budget_plan_id BIGINT REFERENCES budget_plans(id) ON DELETE SET NULL,
+  plan_month DATE NOT NULL,
+  plan_name TEXT NOT NULL,
+  amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+  payment_date DATE,
+  note TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  source_sheet_row INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  synced_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_budget_payments_user_month
+  ON budget_payments (user_id, plan_month);
+
 COMMIT;
