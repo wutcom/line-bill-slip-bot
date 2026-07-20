@@ -23,7 +23,9 @@ const {
   copyPreviousMonthPlans,
   markPlanPaid,
   getBudgetPaymentHistory,
-  deleteBudgetPayment
+  deleteBudgetPayment,
+  deleteBudgetPlan,
+  editBudgetPlan
 } = require('./services/budget.service');
 
 const { normalizeText } = require('./utils/text.util');
@@ -263,6 +265,22 @@ async function handleEvent(event) {
       return replySafe(event.replyToken, 'ตัวอย่าง:\nลบจ่าย 2c27b4f0');
     }
 
+    if (text.startsWith('ลบแผน ')) {
+      return replySafe(event.replyToken, await deleteBudgetPlan(userId, text));
+    }
+
+    if (text === 'ลบแผน') {
+      return replySafe(event.replyToken, 'ตัวอย่าง:\nลบแผน UOB');
+    }
+
+    if (text.startsWith('แก้ไขแผน ')) {
+      return replySafe(event.replyToken, await editBudgetPlan(userId, text));
+    }
+
+    if (text === 'แก้ไขแผน') {
+      return replySafe(event.replyToken, 'ตัวอย่าง:\nแก้ไขแผน UOB 30000');
+    }
+
     if (text === 'ส่งบิล') {
       return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินได้เลยครับ');
     }
@@ -294,7 +312,9 @@ async function handleEvent(event) {
 6. พิมพ์ "ประวัติจ่าย UOB" เพื่อดูรายการจ่ายของแผน
 7. พิมพ์ "ลบจ่าย PaymentId" หากบันทึกผิด
 8. กด "ดูคงเหลือ" เพื่อดูยอดแผนคงเหลือ
-9. พิมพ์ "กราฟสุขภาพ" หรือ "กราฟสุขภาพ 30 วัน" เพื่อดูแนวโน้มน้ำหนัก/ไขมัน/กล้ามเนื้อย้อนหลัง`
+9. พิมพ์ "ลบแผน UOB" เพื่อลบแผน
+10. พิมพ์ "แก้ไขแผน UOB 30000" เพื่อแก้ไขยอดเงินในแผน
+11. พิมพ์ "กราฟสุขภาพ" หรือ "กราฟสุขภาพ 30 วัน" เพื่อดูแนวโน้มน้ำหนัก/ไขมัน/กล้ามเนื้อย้อนหลัง`
       );
     }
 

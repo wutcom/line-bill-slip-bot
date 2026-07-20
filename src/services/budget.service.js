@@ -382,6 +382,115 @@ async function updateBudgetPlanTotals(rows, plan, paidAmount) {
   };
 }
 
+async function deleteBudgetPlan(userId, text) {
+  const parts = text.trim().split(/\s+/);
+
+  if (parts.length < 2) {
+    return 'รูปแบบไม่ถูกต้องครับ\nตัวอย่าง: ลบแผน UOB';
+  }
+
+  const planName = parts[1];
+  const month = getCurrentPlanMonthKey();
+  const budgetRows = await getBudgetRows();
+  const plan = findPlan(budgetRows, userId, month, planName);
+
+  if (!plan) {
+    return `ไม่พบแผน ${planName} ของเดือนนี้ครับ`;
+  }
+
+  const now = new Date().toISOString();
+  const sheetRowNumber = plan.rowIndex + 1;
+
+  // Mark plan as Inactive
+  await updateRows(BUDGET_SHEET_NAME, `H${sheetRowNumber}:J${sheetRowNumber}`, [[
+    'Inactive',
+    plan.row[8] || now,
+    now
+  ]]);
+
+  // Find and mark associated payments as Deleted
+  const paymentRows = await getBudgetPaymentRows();
+  const keyword = normalizeText(planName);
+  let deletedPaymentsCount = 0;
+
+  for (let i = 1; i < paymentRows.length; i++) {
+    const row = paymentRows[i];
+    if (
+      row[1] === month &&
+      row[2] === userId &&
+      normalizeText(row[3]) === keyword &&
+      !isDeletedPayment(row)
+    ) {
+      const paymentSheetRowNumber = i + 1;
+      await updateRows(BUDGET_PAYMENT_SHEET_NAME, `H${paymentSheetRowNumber}:J${paymentSheetRowNumber}`, [[
+        'Deleted',
+        row[8] || now,
+        now
+      ]]);
+      deletedPaymentsCount++;
+    }
+  }
+
+  let responseText = `ลบแผนเรียบร้อยครับ
+  
+เดือน: ${month}
+แผน: ${planName}
+ยอดแผนที่ลบ: ${formatMoney(parseAmount(plan.row[4]))} บาท`;
+
+  if (deletedPaymentsCount > 0) {
+    responseText += `\nและได้ยกเลิกประวัติการจ่ายเงินของแผนนี้จำนวน ${deletedPaymentsCount} รายการแล้วครับ`;
+  }
+
+  return responseText;
+}
+
+async function editBudgetPlan(userId, text) {
+  const parts = text.trim().split(/\s+/);
+
+  if (parts.length < 3) {
+    return 'รูปแบบไม่ถูกต้องครับ\nตัวอย่าง: แก้ไขแผน UOB 30000';
+  }
+
+  const planName = parts[1];
+  const newAmount = parseAmount(parts[2]);
+
+  if (!planName || newAmount <= 0) {
+    return 'กรุณาระบุชื่อแผนและยอดเงินใหม่ให้ถูกต้องครับ\nตัวอย่าง: แก้ไขแผน UOB 30000';
+  }
+
+  const month = getCurrentPlanMonthKey();
+  const budgetRows = await getBudgetRows();
+  const plan = findPlan(budgetRows, userId, month, planName);
+
+  if (!plan) {
+    return `ไม่พบแผน ${planName} ของเดือนนี้ครับ`;
+  }
+
+  const oldAmount = parseAmount(plan.row[4]);
+  const paidAmount = parseAmount(plan.row[5]);
+  const remaining = Math.max(newAmount - paidAmount, 0);
+  const now = new Date().toISOString();
+  const sheetRowNumber = plan.rowIndex + 1;
+
+  await updateRows(BUDGET_SHEET_NAME, `E${sheetRowNumber}:J${sheetRowNumber}`, [[
+    newAmount,
+    paidAmount,
+    remaining,
+    remaining <= 0 ? 'Paid' : 'Active',
+    plan.row[8] || now,
+    now
+  ]]);
+
+  return `แก้ไขแผนเรียบร้อยครับ
+
+เดือน: ${month}
+แผน: ${plan.row[3] || planName}
+ยอดเดิม: ${formatMoney(oldAmount)} บาท
+ยอดใหม่: ${formatMoney(newAmount)} บาท
+จ่ายแล้ว: ${formatMoney(paidAmount)} บาท
+คงเหลือใหม่: ${formatMoney(remaining)} บาท`;
+}
+
 module.exports = {
   addBudgetPlan,
   getCurrentMonthPlans,
@@ -389,5 +498,7 @@ module.exports = {
   copyPreviousMonthPlans,
   markPlanPaid,
   getBudgetPaymentHistory,
-  deleteBudgetPayment
+  deleteBudgetPayment,
+  deleteBudgetPlan,
+  editBudgetPlan
 };
