@@ -35,17 +35,19 @@ async function main() {
       const budgetPaymentStats = await syncBudgetPayments(client, syncRunId);
       const bodyMetricsStats = await syncBodyMetrics(client, syncRunId);
       const foodLogStats = await syncFoodLogs(client, syncRunId);
+      const userSettingsStats = await syncUserSettings(client, syncRunId);
 
       await finishSyncRun(client, syncRunId, 'success', {
-        rowsRead: transactionStats.rowsRead + budgetStats.rowsRead + budgetPaymentStats.rowsRead + bodyMetricsStats.rowsRead + foodLogStats.rowsRead,
-        rowsInserted: transactionStats.rowsInserted + budgetStats.rowsInserted + budgetPaymentStats.rowsInserted + bodyMetricsStats.rowsInserted + foodLogStats.rowsInserted,
-        rowsUpdated: transactionStats.rowsUpdated + budgetStats.rowsUpdated + budgetPaymentStats.rowsUpdated + bodyMetricsStats.rowsUpdated + foodLogStats.rowsUpdated,
+        rowsRead: transactionStats.rowsRead + budgetStats.rowsRead + budgetPaymentStats.rowsRead + bodyMetricsStats.rowsRead + foodLogStats.rowsRead + userSettingsStats.rowsRead,
+        rowsInserted: transactionStats.rowsInserted + budgetStats.rowsInserted + budgetPaymentStats.rowsInserted + bodyMetricsStats.rowsInserted + foodLogStats.rowsInserted + userSettingsStats.rowsInserted,
+        rowsUpdated: transactionStats.rowsUpdated + budgetStats.rowsUpdated + budgetPaymentStats.rowsUpdated + bodyMetricsStats.rowsUpdated + foodLogStats.rowsUpdated + userSettingsStats.rowsUpdated,
         metadata: {
           transactionStats,
           budgetStats,
           budgetPaymentStats,
           bodyMetricsStats,
-          foodLogStats
+          foodLogStats,
+          userSettingsStats
         }
       });
 
@@ -54,7 +56,8 @@ async function main() {
         budgetStats,
         budgetPaymentStats,
         bodyMetricsStats,
-        foodLogStats
+        foodLogStats,
+        userSettingsStats
       });
     } catch (error) {
       console.error('Original sync error occurred:', error);
@@ -1112,6 +1115,51 @@ async function upsertFoodLog(client, data) {
     );
     return 'rowsInserted';
   }
+}
+
+async function syncUserSettings(client, syncRunId) {
+  let rows = [];
+  try {
+    rows = await getSheetRows('UserSettings', 'A:C');
+  } catch (error) {
+    console.log('UserSettings sheet does not exist or cannot be read. Skipping settings sync.');
+    return { rowsRead: 0, rowsInserted: 0, rowsUpdated: 0 };
+  }
+
+  const { headers, dataRows } = parseSheetRows(rows);
+  const stats = createStats(dataRows.length);
+
+  for (const row of dataRows) {
+    try {
+      const source = mapRow(headers, row.values, ['UserId', 'CutoffDay', 'UpdatedAt']);
+      const userIdText = value(source, 'UserId');
+      const cutoffDayText = value(source, 'CutoffDay');
+
+      if (!userIdText || !cutoffDayText) {
+        continue;
+      }
+
+      const cutoffDay = parseInt(cutoffDayText, 10);
+      if (isNaN(cutoffDay) || cutoffDay < 1 || cutoffDay > 31) {
+        continue;
+      }
+
+      const userId = await upsertUser(client, userIdText);
+
+      await client.query(
+        `UPDATE app_users
+         SET cutoff_day = $1, updated_at = $2
+         WHERE id = $3`,
+        [cutoffDay, new Date(), userId]
+      );
+      
+      stats.rowsUpdated++;
+    } catch (error) {
+      await insertRowError(client, syncRunId, 'UserSettings', row.rowNumber, error, row.values);
+    }
+  }
+
+  return stats;
 }
 
 function pad2(value) {

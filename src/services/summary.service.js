@@ -1,6 +1,7 @@
 const { getSheetRows } = require('./sheets.service');
 const { parseAmount, formatMoney } = require('../utils/money.util');
 const { isToday, isCurrentMonth } = require('../utils/date.util');
+const { getCutoffDay } = require('./user-settings.service');
 
 const TRANSACTION_SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
 
@@ -14,6 +15,7 @@ async function getMonthlySummary(userId) {
 
 async function getSummary(userId, mode) {
   const rows = await getSheetRows(TRANSACTION_SHEET_NAME, 'A:K');
+  const cutoffDay = mode === 'month' ? await getCutoffDay(userId) : undefined;
 
   let total = 0;
   let count = 0;
@@ -42,9 +44,10 @@ async function getSummary(userId, mode) {
   });
 
   if (count === 0) {
+    const cutoffText = mode === 'month' && cutoffDay !== undefined ? `\nวันคัตออฟ: วันที่ ${cutoffDay}` : '';
     return mode === 'today'
       ? 'วันนี้ยังไม่มีรายการบันทึกครับ'
-      : 'เดือนนี้ยังไม่มีรายการบันทึกครับ';
+      : `เดือนนี้ยังไม่มีรายการบันทึกครับ${cutoffText}`;
   }
 
   return buildSummaryMessage(
@@ -52,11 +55,12 @@ async function getSummary(userId, mode) {
     count,
     total,
     byCategory,
-    byShop
+    byShop,
+    cutoffDay
   );
 }
 
-function buildSummaryMessage(title, count, total, byCategory, byShop) {
+function buildSummaryMessage(title, count, total, byCategory, byShop, cutoffDay) {
   const categoryText = Object.entries(byCategory)
     .sort((a, b) => b[1] - a[1])
     .map(([category, amount]) => `- ${category}: ${formatMoney(amount)} บาท`)
@@ -68,7 +72,9 @@ function buildSummaryMessage(title, count, total, byCategory, byShop) {
     .map(([shop, amount], index) => `${index + 1}. ${shop}: ${formatMoney(amount)} บาท`)
     .join('\n');
 
-  return `${title}
+  const cutoffText = cutoffDay !== undefined ? `\nวันคัตออฟ: วันที่ ${cutoffDay}` : '';
+
+  return `${title}${cutoffText}
 
 จำนวนรายการ: ${count}
 ยอดรวม: ${formatMoney(total)} บาท

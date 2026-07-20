@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   id BIGSERIAL PRIMARY KEY,
   line_user_id TEXT NOT NULL UNIQUE,
   display_name TEXT,
+  cutoff_day INTEGER NOT NULL DEFAULT 15 CONSTRAINT app_users_cutoff_day_check CHECK (cutoff_day >= 1 AND cutoff_day <= 31),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

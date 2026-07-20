@@ -6,10 +6,10 @@ export function getCurrentMonthKey(date: Date = new Date()): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
 }
 
-export function getCurrentPlanMonthKey(date: Date = new Date()): string {
+export function getCurrentPlanMonthKey(date: Date = new Date(), cutoffDay: number = 15): string {
   const planMonth = new Date(date.getFullYear(), date.getMonth(), 1);
 
-  if (date.getDate() <= 15) {
+  if (date.getDate() <= cutoffDay) {
     planMonth.setMonth(planMonth.getMonth() - 1);
   }
 

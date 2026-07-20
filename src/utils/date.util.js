@@ -14,25 +14,25 @@ function getPreviousMonthKey() {
   return formatMonthKey(now);
 }
 
-function getCurrentPlanMonthKey(referenceDate = new Date()) {
+function getCurrentPlanMonthKey(referenceDate = new Date(), cutoffDay = PLAN_CUTOFF_DAY) {
   const date = toDate(referenceDate);
   const planMonth = new Date(date.getFullYear(), date.getMonth(), 1);
 
-  if (date.getDate() <= PLAN_CUTOFF_DAY) {
+  if (date.getDate() <= cutoffDay) {
     planMonth.setMonth(planMonth.getMonth() - 1);
   }
 
   return formatMonthKey(planMonth);
 }
 
-function getPreviousPlanMonthKey(referenceDate = new Date()) {
-  const [year, month] = getCurrentPlanMonthKey(referenceDate).split('-').map(Number);
+function getPreviousPlanMonthKey(referenceDate = new Date(), cutoffDay = PLAN_CUTOFF_DAY) {
+  const [year, month] = getCurrentPlanMonthKey(referenceDate, cutoffDay).split('-').map(Number);
   const previousPlanMonth = new Date(year, month - 2, 1);
 
   return formatMonthKey(previousPlanMonth);
 }
 
-function getPlanCycleRange(planMonthKey) {
+function getPlanCycleRange(planMonthKey, cutoffDay = PLAN_CUTOFF_DAY) {
   const match = String(planMonthKey || '').match(/^(\d{4})-(\d{2})$/);
 
   if (!match) {
@@ -43,8 +43,8 @@ function getPlanCycleRange(planMonthKey) {
   const month = Number(match[2]);
 
   return {
-    start: new Date(year, month - 1, PLAN_CUTOFF_DAY + 1),
-    end: new Date(year, month, PLAN_CUTOFF_DAY, 23, 59, 59, 999)
+    start: new Date(year, month - 1, cutoffDay + 1),
+    end: new Date(year, month, cutoffDay, 23, 59, 59, 999)
   };
 }
 
@@ -73,11 +73,11 @@ function isCurrentMonth(dateText) {
   );
 }
 
-function isCurrentPlanCycle(dateText, referenceDate = new Date()) {
+function isCurrentPlanCycle(dateText, referenceDate = new Date(), cutoffDay = PLAN_CUTOFF_DAY) {
   const parsedDate = parseTransactionDate(dateText);
   if (!parsedDate) return false;
 
-  const range = getPlanCycleRange(getCurrentPlanMonthKey(referenceDate));
+  const range = getPlanCycleRange(getCurrentPlanMonthKey(referenceDate, cutoffDay), cutoffDay);
 
   return parsedDate >= range.start && parsedDate <= range.end;
 }

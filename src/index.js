@@ -29,6 +29,7 @@ const {
 } = require('./services/budget.service');
 
 const { normalizeText } = require('./utils/text.util');
+const { getCutoffDay, setCutoffDay } = require('./services/user-settings.service');
 
 const app = express();
 const processedMessages = new Set();
@@ -196,6 +197,12 @@ app.get('/help', (req, res) => {
       <li><code>แก้ไขแผน UOB 30000</code></li>
       <li><code>copy แผนเดือนก่อน</code></li>
     </ul>
+
+    <h2>ตั้งค่าระบบ</h2>
+    <ul>
+      <li><code>วันคัตออฟ</code> เพื่อดูวันคัตออฟปัจจุบัน</li>
+      <li><code>วันคัตออฟ 25</code> เพื่อตั้งค่าวันคัตออฟของเดือน (ระบุได้ตั้งแต่ 1-31)</li>
+    </ul>
   </main>
 </body>
 </html>`);
@@ -283,6 +290,21 @@ async function handleEvent(event) {
       return replySafe(event.replyToken, 'ตัวอย่าง:\nแก้ไขแผน UOB 30000');
     }
 
+    if (text.startsWith('ตั้งค่าวันคัตออฟ ') || text.startsWith('วันคัตออฟ ') || text.startsWith('ตั้งค่าคัตออฟ ')) {
+      const parts = text.split(/\s+/);
+      const dayStr = parts[parts.length - 1];
+      const result = await setCutoffDay(userId, dayStr);
+      return replySafe(event.replyToken, result);
+    }
+
+    if (text === 'ตั้งค่าวันคัตออฟ' || text === 'วันคัตออฟ' || text === 'ตั้งค่าคัตออฟ') {
+      const currentCutoff = await getCutoffDay(userId);
+      return replySafe(
+        event.replyToken,
+        `วันคัตออฟปัจจุบันของคุณคือวันที่ ${currentCutoff}\n\nหากต้องการเปลี่ยน กรุณาพิมพ์:\nวันคัตออฟ [1-31]\nตัวอย่าง: วันคัตออฟ 25`
+      );
+    }
+
     if (text === 'ส่งบิล') {
       return replySafe(event.replyToken, 'กรุณาส่งรูปบิลหรือสลิปโอนเงินได้เลยครับ');
     }
@@ -316,7 +338,8 @@ async function handleEvent(event) {
 8. กด "ดูคงเหลือ" เพื่อดูยอดแผนคงเหลือ
 9. พิมพ์ "ลบแผน UOB" เพื่อลบแผน
 10. พิมพ์ "แก้ไขแผน UOB 30000" เพื่อแก้ไขยอดเงินในแผน
-11. พิมพ์ "กราฟสุขภาพ" หรือ "กราฟสุขภาพ 30 วัน" เพื่อดูแนวโน้มน้ำหนัก/ไขมัน/กล้ามเนื้อย้อนหลัง`
+11. พิมพ์ "กราฟสุขภาพ" หรือ "กราฟสุขภาพ 30 วัน" เพื่อดูแนวโน้มน้ำหนัก/ไขมัน/กล้ามเนื้อย้อนหลัง
+12. พิมพ์ "วันคัตออฟ 25" เพื่อตั้งค่าวันคัตออฟของเดือน (ปัจจุบัน/ตั้งค่าใหม่)`
       );
     }
 

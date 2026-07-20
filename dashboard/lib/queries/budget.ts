@@ -23,7 +23,23 @@ export interface BudgetPlansData {
 
 export async function getBudgetPlans({ userId, month }: { userId?: string | number | null; month?: string | null } = {}): Promise<BudgetPlansData> {
   const resolvedUserId = await resolveUserId(userId);
-  const bounds = getMonthBounds(month || getCurrentPlanMonthKey());
+
+  let cutoffDay = 15;
+  if (resolvedUserId) {
+    try {
+      const userRes = await query<{ cutoff_day: number }>(
+        `SELECT cutoff_day FROM app_users WHERE id = $1`,
+        [resolvedUserId]
+      );
+      if (userRes.rows[0] && userRes.rows[0].cutoff_day !== null && userRes.rows[0].cutoff_day !== undefined) {
+        cutoffDay = userRes.rows[0].cutoff_day;
+      }
+    } catch (e) {
+      console.error('Failed to query user cutoff day:', e);
+    }
+  }
+
+  const bounds = getMonthBounds(month || getCurrentPlanMonthKey(new Date(), cutoffDay));
 
   if (!resolvedUserId) {
     return {

@@ -6,6 +6,7 @@ const {
   getCurrentPlanMonthKey,
   getPreviousPlanMonthKey
 } = require('../utils/date.util');
+const { getCutoffDay } = require('./user-settings.service');
 
 const BUDGET_SHEET_NAME = 'BudgetPlan';
 const BUDGET_PAYMENT_SHEET_NAME = process.env.BUDGET_PAYMENT_SHEET_NAME || 'BudgetPayments';
@@ -32,7 +33,8 @@ async function addBudgetPlan(userId, text) {
     return 'กรุณาระบุชื่อแผนและยอดเงินให้ถูกต้องครับ\nตัวอย่าง: เพิ่มแผน UOB 24677';
   }
 
-  const month = getCurrentPlanMonthKey();
+  const cutoffDay = await getCutoffDay(userId);
+  const month = getCurrentPlanMonthKey(new Date(), cutoffDay);
   const now = new Date().toISOString();
 
   await appendRows(BUDGET_SHEET_NAME, 'A:J', [[
@@ -57,7 +59,8 @@ async function addBudgetPlan(userId, text) {
 
 async function getCurrentMonthPlans(userId) {
   const rows = await getBudgetRows();
-  const month = getCurrentPlanMonthKey();
+  const cutoffDay = await getCutoffDay(userId);
+  const month = getCurrentPlanMonthKey(new Date(), cutoffDay);
 
   const plans = rows.slice(1).filter(row =>
     row[0] === month &&
@@ -100,7 +103,8 @@ ${planText}
 
 async function getRemainingPlans(userId) {
   const rows = await getBudgetRows();
-  const month = getCurrentPlanMonthKey();
+  const cutoffDay = await getCutoffDay(userId);
+  const month = getCurrentPlanMonthKey(new Date(), cutoffDay);
 
   const plans = rows.slice(1).filter(row =>
     row[0] === month &&
@@ -133,8 +137,9 @@ ${text}
 async function copyPreviousMonthPlans(userId) {
   const rows = await getBudgetRows();
 
-  const currentMonth = getCurrentPlanMonthKey();
-  const previousMonth = getPreviousPlanMonthKey();
+  const cutoffDay = await getCutoffDay(userId);
+  const currentMonth = getCurrentPlanMonthKey(new Date(), cutoffDay);
+  const previousMonth = getPreviousPlanMonthKey(new Date(), cutoffDay);
 
   const currentPlans = rows.slice(1).filter(row =>
     row[0] === currentMonth &&
@@ -201,7 +206,8 @@ async function markPlanPaid(userId, text) {
     return 'กรุณาระบุยอดที่จ่ายให้ถูกต้องครับ\nตัวอย่าง: จ่ายแล้ว UOB 5000';
   }
 
-  const month = getCurrentPlanMonthKey();
+  const cutoffDay = await getCutoffDay(userId);
+  const month = getCurrentPlanMonthKey(new Date(), cutoffDay);
   const rows = await getBudgetRows();
 
   const plan = findPlan(rows, userId, month, planName);
@@ -248,7 +254,8 @@ async function getBudgetPaymentHistory(userId, text) {
   }
 
   const planName = parts[1];
-  const month = getCurrentPlanMonthKey();
+  const cutoffDay = await getCutoffDay(userId);
+  const month = getCurrentPlanMonthKey(new Date(), cutoffDay);
   const rows = await getBudgetPaymentRows();
   const payments = getActivePayments(rows, userId, month, planName);
 
@@ -390,7 +397,8 @@ async function deleteBudgetPlan(userId, text) {
   }
 
   const planName = parts[1];
-  const month = getCurrentPlanMonthKey();
+  const cutoffDay = await getCutoffDay(userId);
+  const month = getCurrentPlanMonthKey(new Date(), cutoffDay);
   const budgetRows = await getBudgetRows();
   const plan = findPlan(budgetRows, userId, month, planName);
 
@@ -458,7 +466,8 @@ async function editBudgetPlan(userId, text) {
     return 'กรุณาระบุชื่อแผนและยอดเงินใหม่ให้ถูกต้องครับ\nตัวอย่าง: แก้ไขแผน UOB 30000';
   }
 
-  const month = getCurrentPlanMonthKey();
+  const cutoffDay = await getCutoffDay(userId);
+  const month = getCurrentPlanMonthKey(new Date(), cutoffDay);
   const budgetRows = await getBudgetRows();
   const plan = findPlan(budgetRows, userId, month, planName);
 

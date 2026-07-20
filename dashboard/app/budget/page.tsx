@@ -12,10 +12,11 @@ interface BudgetPageProps {
 
 export default async function BudgetPage({ searchParams }: BudgetPageProps) {
   const params = await searchParams;
-  const month = typeof params?.month === 'string' ? params.month : getCurrentPlanMonthKey();
+  const monthParam = typeof params?.month === 'string' ? params.month : null;
   const selectedUserId = typeof params?.userId === 'string' ? params.userId : '';
-  const { users, budget, error } = await loadBudget({ userId: selectedUserId, month });
+  const { users, budget, error } = await loadBudget({ userId: selectedUserId, month: monthParam });
   const effectiveUserId = selectedUserId || budget.userId || users[0]?.id || '';
+  const month = budget.month;
 
   return (
     <AppShell users={users} selectedUserId={effectiveUserId} month={month} active="budget">
