@@ -192,6 +192,8 @@ app.get('/help', (req, res) => {
       <li><code>จ่ายแล้ว UOB 5000</code></li>
       <li><code>ประวัติจ่าย UOB</code></li>
       <li><code>ลบจ่าย PaymentId</code></li>
+      <li><code>ลบแผน UOB</code></li>
+      <li><code>แก้ไขแผน UOB 30000</code></li>
       <li><code>copy แผนเดือนก่อน</code></li>
     </ul>
   </main>
